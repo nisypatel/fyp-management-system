@@ -1,753 +1,484 @@
-# FYP Management System
+# Final Year Project Management System
+## Complete MERN Stack Application for GTU Viva
 
-A comprehensive, enterprise-grade **Final Year Project Management System** built with modern web technologies, featuring secure authentication, role-based access control, project management, and file upload capabilities.
-
-## 🎯 Overview
-
-This system is designed for educational institutions to manage Final Year Projects (FYP) across multiple stakeholders: Administrators, Teachers (Supervisors), and Students. The application implements professional-grade security practices, clean architecture, and an intuitive user interface.
+A professional, production-ready Final Year Project Management System built with MongoDB, Express.js, React.js, and Node.js.
 
 ---
 
-## 🏗️ Tech Stack
+## 🎯 Project Overview
 
-### Backend
-- **Runtime**: Node.js 18+
-- **Framework**: Express.js 4.18
-- **Language**: TypeScript 5.3
-- **Database**: MongoDB 6.0+ with Mongoose ODM
-- **Authentication**: JWT (JSON Web Tokens)
-- **Password Security**: bcryptjs (12-round salt)
-- **Security**:
-  - Helmet.js (security headers)
-  - CORS configuration
-  - Express Rate Limiter
-  - Input validation & sanitization
+This is a comprehensive web-based application designed to streamline the management of academic final year projects. The system supports three user roles (Student, Teacher, Admin) with complete CRUD operations, file management, and real-time notifications.
 
-### Frontend
-- **Build Tool**: Vite 5.0
-- **Framework**: React 18
-- **Language**: TypeScript 5.3
-- **Styling**: Tailwind CSS 3.3
-- **UI Components**: Shadcn/UI (custom component library)
-- **State Management**: React Context API + React Query
-- **HTTP Client**: Axios with interceptors
-- **Form Handling**: React Hook Form + Zod
-- **Icons**: Lucide React
-- **Routing**: React Router v6
-
-### Infrastructure
-- **Local Database**: MongoDB community edition
-- **Package Manager**: npm
-- **Development**: ts-node-dev
+### Key Features
+- ✅ Secure JWT-based authentication
+- ✅ Role-based access control (Student, Teacher, Admin)
+- ✅ Project proposal submission and tracking
+- ✅ Supervisor request and approval workflow
+- ✅ Admin approval system
+- ✅ File upload and download system
+- ✅ Real-time notification system
+- ✅ Project progress tracking
+- ✅ Feedback and communication system
+- ✅ Responsive modern UI
+- ✅ Complete user management (Admin)
 
 ---
 
-## 📋 System Architecture
+## 📋 Prerequisites
 
-```
-FYP Management System
-├── Backend (Port 5000)
-│   ├── Authentication API
-│   ├── Project Management API
-│   ├── File Upload API
-│   └── MongoDB Database
-│
-└── Frontend (Port 5173)
-    ├── Auth Pages (Login/Register)
-    ├── Role-Based Dashboards
-    ├── Project Management UI
-    └── File Upload Interface
-```
+Before you begin, ensure you have the following installed:
+- **Node.js** (v14 or higher) - [Download](https://nodejs.org/)
+- **MongoDB** (v4.4 or higher) - [Download](https://www.mongodb.com/try/download/community)
+- **VS Code** (recommended) - [Download](https://code.visualstudio.com/)
+- **Postman** (for API testing) - [Download](https://www.postman.com/)
 
 ---
 
-## 🔐 Security Features
+## 🚀 Complete Setup Instructions
 
-### Authentication & Authorization
-✅ JWT with dual-token system:
-- **Access Token**: 15-minute expiry (short-lived)
-- **Refresh Token**: 7-day expiry (stored in MongoDB with TTL)
+### STEP 1: Extract and Navigate to Project
 
-✅ Password Security:
-- Bcrypt hashing with 12 salt rounds
-- Password strength validation
-- Secure password comparison
-
-✅ Role-Based Access Control (RBAC):
-- Route-level middleware protection
-- Frontend UI role-based rendering
-- Three distinct roles with specific permissions
-
-### API Security
-✅ Rate Limiting:
-- Auth endpoints: 5 requests per 15 minutes
-- General API: 100 requests per 15 minutes
-
-✅ Data Validation:
-- Express-validator for all inputs
-- XSS prevention through sanitization
-- MongoDB parameterized queries
-- Email format validation
-- Password strength requirements
-
-✅ Network Security:
-- Helmet.js security headers
-- CORS with origin whitelist
-- Request body size limits (10MB)
-- Secure token storage (httpOnly consideration)
-
-✅ File Upload Security:
-- MIME type whitelist (PDF, Word, Images only)
-- File size limit: 10MB maximum
-- Filename sanitization (prevent path traversal)
-- Files stored outside webroot
-- Authorization checks before download
-
----
-
-## 👥 User Roles & Permissions
-
-### 1. **Admin** 👨‍💼
-**Permissions:**
-- ✅ View all projects in the system
-- ✅ Create new projects
-- ✅ Edit any project
-- ✅ Delete any project
-- ✅ Assign students to projects
-- ✅ Access admin dashboard with system statistics
-- ✅ View all users
-- ✅ Manage project status and assignments
-
-**Dashboard Features:**
-- System-wide project statistics
-- Total projects, assigned projects, completed projects
-- All projects table with supervisors and students
-- Quick actions for project management
-
-**API Access:**
-- `GET /api/projects` → All projects
-- `POST /api/projects` → Create project
-- `PUT /api/projects/:id` → Edit project
-- `DELETE /api/projects/:id` → Delete project (Admin only)
-
----
-
-### 2. **Teacher** (Supervisor) 👨‍🏫
-**Permissions:**
-- ✅ View only supervised projects
-- ✅ Create new projects
-- ✅ Edit supervised projects only
-- ✅ Assign students to supervised projects
-- ✅ View and manage files in supervised projects
-- ✅ Access teacher-specific dashboard
-- ❌ Cannot delete projects
-- ❌ Cannot access other teachers' projects
-
-**Dashboard Features:**
-- My Projects statistics (total, assigned, pending)
-- List of supervised projects with student assignments
-- File upload tracking per project
-- Project status overview
-
-**API Access:**
-- `GET /api/projects` → Supervised projects only
-- `POST /api/projects` → Create project
-- `PUT /api/projects/:id` → Edit own projects
-- `POST /api/projects/:id/assign` → Assign students
-- `POST /api/files/upload` → Upload files
-
----
-
-### 3. **Student** 🎓
-**Permissions:**
-- ✅ View only assigned project
-- ✅ Upload files to assigned project
-- ✅ Download files from assigned project
-- ✅ View project details and supervisor info
-- ✅ Access student-specific dashboard
-- ❌ Cannot create or edit projects
-- ❌ Cannot assign themselves to projects
-- ❌ Cannot delete files uploaded by others
-
-**Dashboard Features:**
-- My Project card with status
-- Supervisor information display
-- Project description
-- File upload section with drag-n-drop
-- List of uploaded files with download options
-
-**API Access:**
-- `GET /api/projects` → Assigned project only
-- `POST /api/files/upload` → Upload files
-- `GET /api/files/project/:projectId` → View project files
-- `GET /api/files/:fileId/download` → Download files
-
----
-
-## 🔒 RBAC Implementation
-
-### Route-Level Protection
-```typescript
-// Admin only
-DELETE /api/projects/:id → requireAdmin middleware
-
-// Admin or Teacher
-POST /api/projects → requireTeacher middleware
-POST /api/projects/:id/assign → requireTeacher middleware
-
-// All authenticated users
-GET /api/projects → authenticate middleware
-POST /api/files/upload → authenticate middleware
-```
-
-### Frontend Protection
-- ProtectedRoute component checks authentication
-- Role-based UI rendering (components only show for authorized roles)
-- Dashboard differentiation based on user role
-- Menu items filtered by user permissions
-
----
-
-## 🚀 Getting Started
-
-### Prerequisites
-- Node.js 18 or higher
-- npm or yarn
-- MongoDB Community Edition (local or Atlas)
-- Git
-
-### Environment Setup
-
-#### Backend Setup
-
-1. **Navigate to backend directory**
 ```bash
+# Extract the zip file and navigate to project directory
+cd fyp-management-system
+```
+
+### STEP 2: Backend Setup
+
+```bash
+# Navigate to backend folder
 cd backend
-```
 
-2. **Install dependencies**
-```bash
+# Install dependencies
 npm install
-```
 
-3. **Configure environment variables**
-```bash
-# Copy example to .env
+# Create .env file
 cp .env.example .env
-
-# Edit .env with your configuration
-# MongoDB URI: mongodb://localhost:27017/fyp_management
-# JWT_ACCESS_SECRET: your-secret-key
-# JWT_REFRESH_SECRET: your-secret-key
-# CORS_ORIGIN: http://localhost:5173
 ```
 
-4. **Verify .env file**
-```bash
-cat .env
+**Edit the `.env` file with your configuration:**
+```env
+PORT=5000
+NODE_ENV=development
+MONGO_URI=mongodb://localhost:27017/fyp_management
+JWT_SECRET=your_super_secret_jwt_key_change_this_in_production
+JWT_EXPIRE=7d
+CLIENT_URL=http://localhost:3000
+MAX_FILE_SIZE=10485760
+UPLOAD_PATH=./uploads
 ```
 
-5. **Start the backend server**
 ```bash
+# Create uploads directory
+mkdir uploads
+
+# Start the backend server
 npm run dev
 ```
 
-**Expected Output:**
-```
-🚀 Server running on port 5000
-✅ MongoDB connected successfully
-📊 Database: fyp_management
-🌍 Environment: development
-📡 CORS enabled for: http://localhost:5173
-```
+The backend will run on **http://localhost:5000**
 
----
+### STEP 3: Frontend Setup
 
-#### Frontend Setup
+Open a **NEW TERMINAL** window:
 
-1. **Navigate to frontend directory**
 ```bash
+# Navigate to frontend folder
 cd frontend
-```
 
-2. **Install dependencies**
-```bash
+# Install dependencies
 npm install
+
+# Create .env file
+cp .env.example .env
 ```
 
-3. **Configure environment variables**
+**Edit the `.env` file:**
+```env
+REACT_APP_API_URL=http://localhost:5000/api
+```
+
 ```bash
-# Copy or edit .env
-cat .env
-# Should contain: VITE_API_URL=http://localhost:5000/api
+# Start the frontend development server
+npm start
 ```
 
-4. **Start the frontend development server**
+The frontend will run on **http://localhost:3000**
+
+### STEP 4: Start MongoDB
+
+**On Windows:**
 ```bash
-npm run dev
+net start MongoDB
 ```
 
-**Expected Output:**
+**On Mac/Linux:**
+```bash
+sudo systemctl start mongod
+# OR
+brew services start mongodb-community
 ```
-  VITE v5.0.0  ready in 123 ms
 
-  ➜  Local:   http://localhost:5173/
-  ➜  press h to show help
-```
-
-5. **Access the application**
-```
-http://localhost:5173
-```
+**Using MongoDB Compass:**
+- Connect to `mongodb://localhost:27017`
+- Database `fyp_management` will be created automatically
 
 ---
 
-### Verification Steps
+## 👥 Initial User Setup
 
-#### 1. Health Check
-```bash
-# Test backend is running
-curl http://localhost:5000/health
+### Create Admin User
 
-# Response:
-# {
-#   "success": true,
-#   "message": "Server is healthy",
-#   "timestamp": "2026-03-25T12:00:00.000Z"
-# }
+Use Postman or any API client:
+
+**Request:**
+```
+POST http://localhost:5000/api/auth/register
 ```
 
-#### 2. Create Test Users
-
-**Register as Admin:**
-1. Go to http://localhost:5173/register
-2. Enter:
-   - Name: Admin User
-   - Email: admin@example.com
-   - Password: Admin@123
-   - Role: Admin
-3. Click "Sign Up"
-
-**Register as Teacher:**
-1. Go to http://localhost:5173/register
-2. Enter:
-   - Name: Teacher User
-   - Email: teacher@example.com
-   - Password: Teacher@123
-   - Role: Teacher
-3. Click "Sign Up"
-
-**Register as Student:**
-1. Go to http://localhost:5173/register
-2. Enter:
-   - Name: Student User
-   - Email: student@example.com
-   - Password: Student@123
-   - Role: Student
-3. Click "Sign Up"
-
-#### 3. Test Project Creation (Admin/Teacher)
-1. Login as Teacher
-2. Dashboard → "Create Project"
-3. Fill in:
-   - Title: "Advanced AI System"
-   - Description: "Development of..."
-   - Supervisor: (auto-filled)
-   - Student: Select student user
-4. Submit → Project created
-
-#### 4. Test File Upload (Student)
-1. Login as Student
-2. Dashboard → "Upload File"
-3. Drag and drop or select a PDF/image
-4. File uploaded successfully
-
-#### 5. Test RBAC Restrictions
-- Student tries to access /projects → Only sees assigned project
-- Student tries to delete project → 403 Forbidden
-- Teacher tries to delete project → 403 Forbidden (Admin only)
-
----
-
-## 📚 API Documentation
-
-### Base URL
+**Headers:**
 ```
-http://localhost:5000/api
-```
-
-### Authentication Endpoints
-
-#### Register
-```
-POST /auth/register
 Content-Type: application/json
+```
 
+**Body (JSON):**
+```json
 {
-  "name": "John Doe",
-  "email": "john@example.com",
-  "password": "Password@123",
-  "role": "Student"
-}
-
-Response (201):
-{
-  "success": true,
-  "message": "User registered successfully",
-  "data": {
-    "user": { "id": "...", "name": "John Doe", "email": "john@example.com", "role": "Student" },
-    "accessToken": "eyJhbGc...",
-    "refreshToken": "eyJhbGc..."
-  }
+  "name": "Admin User",
+  "email": "admin@fyp.com",
+  "password": "admin123",
+  "role": "admin",
+  "phone": "9876543210"
 }
 ```
 
-#### Login
-```
-POST /auth/login
-Content-Type: application/json
+**Response:** You'll receive a token and user object
 
-{
-  "email": "john@example.com",
-  "password": "Password@123"
-}
+### Create Sample Teacher
 
-Response (200):
+```json
 {
-  "success": true,
-  "message": "Login successful",
-  "data": { ... }
+  "name": "Dr. John Smith",
+  "email": "john.smith@fyp.com",
+  "password": "teacher123",
+  "role": "teacher",
+  "department": "Computer Science",
+  "employeeId": "EMP001",
+  "phone": "9876543211"
 }
 ```
 
-### Project Endpoints
+### Create Sample Student
 
-#### Get All Projects
-```
-GET /projects
-Authorization: Bearer {accessToken}
-
-Response (200):
+```json
 {
-  "success": true,
-  "data": [
-    {
-      "_id": "...",
-      "title": "FYP Project",
-      "description": "...",
-      "status": "Pending",
-      "student": {...},
-      "supervisor": {...},
-      "files": [...],
-      "createdAt": "2026-03-25T..."
-    }
-  ]
-}
-```
-
-#### Create Project
-```
-POST /projects
-Authorization: Bearer {accessToken}
-Content-Type: application/json
-
-{
-  "title": "Project Title",
-  "description": "Project description",
-  "supervisorId": "supervisor-user-id",
-  "studentId": "student-user-id"
-}
-
-Response (201): Created project object
-```
-
-### File Endpoints
-
-#### Upload File
-```
-POST /files/upload
-Authorization: Bearer {accessToken}
-Content-Type: multipart/form-data
-
-Form Data:
-- file: (binary file)
-- projectId: "project-id"
-
-Response (201): File upload record
-```
-
-#### Get Project Files
-```
-GET /files/project/{projectId}
-Authorization: Bearer {accessToken}
-
-Response (200): Array of file records
-```
-
-#### Download File
-```
-GET /files/{fileId}/download
-Authorization: Bearer {accessToken}
-
-Response (200): File binary (with headers for download)
-```
-
-#### Delete File
-```
-DELETE /files/{fileId}
-Authorization: Bearer {accessToken}
-
-Response (200):
-{
-  "success": true,
-  "message": "File deleted successfully"
+  "name": "Student Name",
+  "email": "student@fyp.com",
+  "password": "student123",
+  "role": "student",
+  "department": "Computer Science",
+  "enrollmentNumber": "20CS001",
+  "phone": "9876543212"
 }
 ```
 
 ---
 
-## 📦 Postman Collection
+## 🔐 Login Credentials
 
-A complete Postman collection is included: `postman_collection.json`
+After creating users, you can login with:
 
-### Importing to Postman
-1. Open Postman
-2. Click "Import" → Select `postman_collection.json`
-3. Set variables:
-   - `base_url`: http://localhost:5000/api
-   - `access_token`: (auto-populated after login)
-   - `refresh_token`: (auto-populated after login)
-4. Test all endpoints
+**Admin:**
+- Email: `admin@fyp.com`
+- Password: `admin123`
 
----
+**Teacher:**
+- Email: `john.smith@fyp.com`
+- Password: `teacher123`
 
-## 🧪 Testing RBAC Restrictions
-
-### Test Matrix
-| Action | Admin | Teacher | Student |
-|--------|-------|---------|---------|
-| Create Project | ✅ | ✅ | ❌ |
-| Edit Project | ✅ | ✅* | ❌ |
-| Delete Project | ✅ | ❌ | ❌ |
-| Assign Student | ✅ | ✅* | ❌ |
-| Upload File | ✅ | ✅ | ✅ |
-| View All Projects | ✅ | ❌ | ❌ |
-| View Supervised | ✅ | ✅ | ❌ |
-| View Assigned | ✅ | ✅ | ✅ |
-
-*Teacher can only manage their own supervised projects
-
-### Test Commands
-```bash
-# 1. Register and get tokens
-curl -X POST http://localhost:5000/api/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Test","email":"test@test.com","password":"Test@123","role":"Student"}'
-
-# 2. Try to delete project as Student (should fail)
-curl -X DELETE http://localhost:5000/api/projects/PROJECT_ID \
-  -H "Authorization: Bearer STUDENT_TOKEN"
-
-# Expected: 403 Forbidden
-```
+**Student:**
+- Email: `student@fyp.com`
+- Password: `student123`
 
 ---
 
-## 📂 Project Structure
+## 📱 Testing the Application
+
+### As a Student:
+1. Login with student credentials
+2. Click "Submit New Project"
+3. Fill in project details and upload proposal document
+4. Select a supervisor from the dropdown
+5. View project status and progress
+
+### As a Teacher:
+1. Login with teacher credentials
+2. View "Supervision Requests" tab
+3. Accept or reject student requests
+4. View assigned projects
+5. Add feedback and track progress
+
+### As an Admin:
+1. Login with admin credentials
+2. View all statistics
+3. Approve or reject projects
+4. Manage users (Create, Update, Delete)
+5. Monitor system-wide activities
+
+---
+
+## 📝 API Endpoints Reference
+
+### Authentication
+- `POST /api/auth/register` - Register new user
+- `POST /api/auth/login` - Login user
+- `GET /api/auth/me` - Get current user
+- `PUT /api/auth/updateprofile` - Update profile
+- `PUT /api/auth/updatepassword` - Change password
+
+### Projects
+- `GET /api/projects` - Get all projects (filtered by role)
+- `POST /api/projects` - Create new project (Student)
+- `GET /api/projects/:id` - Get single project
+- `PUT /api/projects/:id/request-supervisor` - Request supervisor
+- `PUT /api/projects/:id/supervisor-response` - Accept/Reject (Teacher)
+- `PUT /api/projects/:id/admin-approval` - Approve/Reject (Admin)
+- `POST /api/projects/:id/feedback` - Add feedback
+- `POST /api/projects/:id/documents` - Upload document
+- `PUT /api/projects/:id/progress` - Update progress
+
+### Users (Admin only)
+- `GET /api/users` - Get all users
+- `POST /api/users` - Create user
+- `GET /api/users/:id` - Get single user
+- `PUT /api/users/:id` - Update user
+- `DELETE /api/users/:id` - Delete user
+- `GET /api/users/teachers` - Get all teachers
+- `GET /api/users/stats/dashboard` - Get dashboard stats
+
+### Files
+- `GET /api/files/download/:filename` - Download file
+- `DELETE /api/files/:projectId/:documentId` - Delete file
+
+### Notifications
+- `GET /api/notifications` - Get user notifications
+- `PUT /api/notifications/:id/read` - Mark as read
+- `PUT /api/notifications/read-all` - Mark all as read
+- `DELETE /api/notifications/:id` - Delete notification
+
+---
+
+## 🗂️ Project Structure
 
 ```
-FYP/
+fyp-management-system/
 ├── backend/
-│   ├── src/
-│   │   ├── config/
-│   │   │   ├── database.ts
-│   │   │   ├── jwt.config.ts
-│   │   │   └── multer.config.ts
-│   │   ├── middleware/
-│   │   │   ├── auth.middleware.ts
-│   │   │   ├── rbac.middleware.ts
-│   │   │   ├── validate.middleware.ts
-│   │   │   ├── errorHandler.middleware.ts
-│   │   │   ├── rateLimiter.middleware.ts
-│   │   │   └── fileValidation.middleware.ts
-│   │   ├── models/
-│   │   │   ├── User.model.ts
-│   │   │   ├── Project.model.ts
-│   │   │   ├── RefreshToken.model.ts
-│   │   │   └── FileUpload.model.ts
-│   │   ├── controllers/
-│   │   │   ├── auth.controller.ts
-│   │   │   ├── project.controller.ts
-│   │   │   └── file.controller.ts
-│   │   ├── routes/
-│   │   │   ├── auth.routes.ts
-│   │   │   ├── project.routes.ts
-│   │   │   └── file.routes.ts
-│   │   ├── utils/
-│   │   │   ├── hashPassword.ts
-│   │   │   ├── generateTokens.ts
-│   │   │   └── validators.ts
-│   │   ├── types/
-│   │   │   └── index.ts
-│   │   └── server.ts
-│   ├── uploads/ (file storage)
-│   ├── .env
-│   ├── .gitignore
-│   ├── package.json
-│   └── tsconfig.json
+│   ├── config/
+│   │   └── db.js                    # MongoDB connection
+│   ├── controllers/
+│   │   ├── authController.js        # Authentication logic
+│   │   ├── projectController.js     # Project operations
+│   │   ├── userController.js        # User management
+│   │   ├── notificationController.js# Notifications
+│   │   └── fileController.js        # File operations
+│   ├── middleware/
+│   │   ├── auth.js                  # JWT verification
+│   │   ├── upload.js                # File upload (Multer)
+│   │   └── error.js                 # Error handling
+│   ├── models/
+│   │   ├── User.js                  # User schema
+│   │   ├── Project.js               # Project schema
+│   │   └── Notification.js          # Notification schema
+│   ├── routes/
+│   │   ├── auth.js                  # Auth routes
+│   │   ├── projects.js              # Project routes
+│   │   ├── users.js                 # User routes
+│   │   ├── notifications.js         # Notification routes
+│   │   └── files.js                 # File routes
+│   ├── uploads/                     # File storage
+│   ├── .env                         # Environment variables
+│   ├── package.json                 # Dependencies
+│   └── server.js                    # Entry point
 │
-├── frontend/
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── ui/ (Shadcn components)
-│   │   │   ├── auth/
-│   │   │   ├── dashboard/
-│   │   │   ├── projects/
-│   │   │   ├── layout/
-│   │   │   └── common/
-│   │   ├── pages/
-│   │   │   ├── Login.tsx
-│   │   │   ├── Register.tsx
-│   │   │   ├── Dashboard.tsx
-│   │   │   ├── Projects.tsx
-│   │   │   └── ProjectDetail.tsx
-│   │   ├── hooks/
-│   │   │   ├── useAuth.tsx
-│   │   │   └── useProjects.ts
-│   │   ├── lib/
-│   │   │   ├── api.ts
-│   │   │   ├── auth.ts
-│   │   │   └── utils.ts
-│   │   ├── types/
-│   │   │   └── index.ts
-│   │   ├── App.tsx
-│   │   ├── main.tsx
-│   │   └── index.css
-│   ├── .env
-│   ├── .gitignore
-│   ├── vite.config.ts
-│   ├── tailwind.config.js
-│   ├── components.json
-│   ├── package.json
-│   └── tsconfig.json
-│
-├── postman_collection.json
-├── README.md (this file)
-└── build-plan.md
+└── frontend/
+    ├── public/
+    │   └── index.html               # HTML template
+    ├── src/
+    │   ├── components/
+    │   │   └── Navbar.js            # Navigation bar
+    │   ├── context/
+    │   │   └── AuthContext.js       # Auth state management
+    │   ├── pages/
+    │   │   ├── Login.js             # Login page
+    │   │   ├── Register.js          # Registration page
+    │   │   ├── StudentDashboard.js  # Student dashboard
+    │   │   ├── TeacherDashboard.js  # Teacher dashboard
+    │   │   ├── AdminDashboard.js    # Admin dashboard
+    │   │   ├── ProjectDetails.js    # Project details
+    │   │   └── Profile.js           # User profile
+    │   ├── utils/
+    │   │   └── api.js               # Axios configuration
+    │   ├── App.js                   # Main app component
+    │   ├── App.css                  # Global styles
+    │   ├── index.js                 # React entry point
+    │   └── index.css                # Base styles
+    ├── .env                         # Environment variables
+    └── package.json                 # Dependencies
 ```
 
 ---
 
-## 🔧 Troubleshooting
+## 🧪 Testing with Postman
 
-### Backend Issues
+### 1. Import Collection
 
-**Port 5000 already in use:**
-```bash
-# Kill process using port 5000
-lsof -i :5000
-kill -9 <PID>
+Create a new Postman collection and add these requests:
 
-# Or change PORT in .env
-PORT=5001
+### 2. Sample Requests
+
+**Login:**
+```
+POST http://localhost:5000/api/auth/login
+Body: {
+  "email": "student@fyp.com",
+  "password": "student123"
+}
 ```
 
-**MongoDB connection error:**
-```bash
-# Ensure MongoDB is running
-mongod
-
-# Check connection string in .env
-MONGODB_URI=mongodb://localhost:27017/fyp_management
+**Create Project:**
 ```
-
-**JWT errors:**
-```bash
-# Verify JWT secrets are set in .env
-JWT_ACCESS_SECRET=your-secret-here
-JWT_REFRESH_SECRET=your-secret-here
-```
-
-### Frontend Issues
-
-**CORS error:**
-```bash
-# Ensure backend CORS_ORIGIN matches frontend URL
-CORS_ORIGIN=http://localhost:5173
-```
-
-**Token not persisting:**
-```bash
-# Check browser LocalStorage
-# DevTools → Application → Local Storage
-# Should contain: accessToken, refreshToken, user
+POST http://localhost:5000/api/projects
+Headers: Authorization: Bearer YOUR_TOKEN
+Form-data:
+- title: "AI-Based Chatbot System"
+- description: "Building an intelligent chatbot using NLP"
+- category: "AI/ML"
+- technologies: ["Python", "TensorFlow", "NLP"]
+- proposalFile: (attach file)
 ```
 
 ---
 
-## 📝 Development Notes
+## 🎓 For GTU Viva Preparation
 
-### Git Workflow
-```bash
-# Clone repository
-git clone <repo-url>
-cd FYP
+### Technical Highlights:
+1. **Full MERN Stack Implementation**
+2. **RESTful API Design** with proper HTTP methods
+3. **JWT Authentication** with token-based security
+4. **Role-Based Access Control** (RBAC)
+5. **File Management System** with Multer
+6. **MongoDB Indexing** for performance
+7. **React Hooks** for state management
+8. **Responsive Design** with modern CSS
+9. **Error Handling** and validation
+10. **Production-ready** code structure
 
-# Create feature branch
-git checkout -b feature/new-feature
+### Key Points to Explain:
+- **Security**: bcrypt for passwords, JWT for sessions
+- **Scalability**: Modular code, MongoDB indexes
+- **UX**: Toast notifications, loading states, error messages
+- **File Storage**: Server-side with role-based access
+- **Database Design**: Normalized schema with references
+- **API Structure**: Controllers, routes, middleware pattern
 
-# Make changes and commit
-git add .
-git commit -m "Add new feature"
+---
 
-# Push to remote
-git push origin feature/new-feature
+## 🐛 Troubleshooting
+
+### MongoDB Connection Error
+```
+Error: MongoNetworkError
+Solution: Ensure MongoDB is running and MONGO_URI is correct
 ```
 
-### Environment Variables Checklist
+### Port Already in Use
+```
+Error: EADDRINUSE
+Solution: Kill the process using the port or change PORT in .env
+```
 
-**Backend (.env):**
-- [ ] PORT=5000
-- [ ] NODE_ENV=development
-- [ ] MONGODB_URI=mongodb://localhost:27017/fyp_management
-- [ ] JWT_ACCESS_SECRET=<unique-secret>
-- [ ] JWT_REFRESH_SECRET=<unique-secret>
-- [ ] CORS_ORIGIN=http://localhost:5173
+### CORS Error
+```
+Error: CORS policy blocked
+Solution: Verify CLIENT_URL in backend .env matches frontend URL
+```
 
-**Frontend (.env):**
-- [ ] VITE_API_URL=http://localhost:5000/api
+### Token Expired
+```
+Error: jwt expired
+Solution: Clear localStorage and login again
+```
+
+### File Upload Failed
+```
+Error: File too large
+Solution: Check MAX_FILE_SIZE in .env (default 10MB)
+```
+
+---
+
+## 📦 Deployment (Optional)
+
+### Backend Deployment (Render/Heroku)
+1. Push code to GitHub
+2. Connect repository to Render/Heroku
+3. Set environment variables
+4. Deploy
+
+### Frontend Deployment (Vercel/Netlify)
+1. Build: `npm run build`
+2. Deploy build folder
+3. Set REACT_APP_API_URL to deployed backend URL
+
+### Database (MongoDB Atlas)
+1. Create cluster on MongoDB Atlas
+2. Get connection string
+3. Update MONGO_URI in backend .env
 
 ---
 
 ## 📄 License
 
-This project is part of a Final Year Project implementation exercise.
+This project is created for educational purposes as a Final Year Project.
 
 ---
 
-## 👥 Support
+## 👨‍💻 Developer
 
-For issues or questions:
-1. Check the troubleshooting section above
-2. Review the GitHub issues
-3. Contact the development team
-
----
-
-## 🎓 Educational Notes
-
-This system demonstrates:
-- ✅ Full-stack TypeScript application
-- ✅ Enterprise-grade security practices
-- ✅ Role-Based Access Control (RBAC)
-- ✅ JWT authentication with refresh tokens
-- ✅ RESTful API design
-- ✅ React best practices with hooks
-- ✅ MongoDB schema design
-- ✅ Professional UI/UX with Shadcn/UI
-- ✅ Comprehensive error handling
-- ✅ Input validation and sanitization
+**Your Name**
+- University: Gujarat Technological University
+- Department: Computer Engineering
+- Year: 2025
 
 ---
 
-**Happy Coding! 🚀**
+## 📞 Support
+
+For any issues or questions during setup:
+1. Check the troubleshooting section
+2. Review the error logs in terminal
+3. Verify all environment variables are set correctly
+4. Ensure MongoDB is running
+
+---
+
+## ✅ Final Checklist Before Viva
+
+- [ ] Backend server running without errors
+- [ ] Frontend application accessible
+- [ ] MongoDB connected successfully
+- [ ] Admin user created and can login
+- [ ] Sample student and teacher accounts created
+- [ ] Test project submission workflow
+- [ ] Test supervisor request/approval
+- [ ] Test admin approval
+- [ ] Test file upload/download
+- [ ] All CRUD operations working
+- [ ] Understand the code architecture
+- [ ] Prepared to explain technical decisions
+
+---
+
+## 🎉 You're All Set!
+
+The application is now fully functional and ready for demonstration. Good luck with your GTU viva! 🚀

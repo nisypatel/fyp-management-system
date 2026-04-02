@@ -1,8 +1,9 @@
+// Purpose: Top navigation shared across all protected pages.
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { FiBell, FiUser, FiLogOut } from 'react-icons/fi';
-import API from '../utils/api';
+import { notificationService } from '../services/notificationService';
 
 const Navbar = () => {
   const { user, logout } = useAuth();
@@ -15,15 +16,16 @@ const Navbar = () => {
 
   const fetchNotifications = async () => {
     try {
-      const response = await API.get('/notifications');
-      setUnreadCount(response.data.unreadCount);
+      const data = await notificationService.getNotifications();
+      setUnreadCount(data.unreadCount);
     } catch (error) {
       console.error('Error fetching notifications:', error);
     }
   };
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    // Wait for cookie logout API so UI and backend session stay in sync.
+    await logout();
     navigate('/login');
   };
 

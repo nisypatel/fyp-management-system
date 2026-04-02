@@ -1,5 +1,6 @@
+// Purpose: Global auth state (user/session) and auth actions for the app.
 import React, { createContext, useState, useEffect, useContext } from 'react';
-import API from '../utils/api';
+import { authService } from '../services/authService';
 
 const AuthContext = createContext();
 
@@ -18,8 +19,8 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const loadUser = async () => {
       try {
-        const response = await API.get('/auth/me');
-        setUser(response.data.user);
+        const currentUser = await authService.getCurrentUser();
+        setUser(currentUser);
       } catch (error) {
         setUser(null);
       }
@@ -46,8 +47,8 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (email, password) => {
     try {
-      const response = await API.post('/auth/login', { email, password });
-      const { user } = response.data;
+      const response = await authService.login(email, password);
+      const { user } = response;
       
       setUser(user);
       triggerSync();
@@ -63,8 +64,8 @@ export const AuthProvider = ({ children }) => {
 
   const register = async (userData) => {
     try {
-      const response = await API.post('/auth/register', userData);
-      const { user } = response.data;
+      const response = await authService.register(userData);
+      const { user } = response;
       
       setUser(user);
       triggerSync();
@@ -80,7 +81,7 @@ export const AuthProvider = ({ children }) => {
 
   const logout = async () => {
     try {
-      await API.post('/auth/logout');
+      await authService.logout();
     } catch (error) {
       console.error('Logout error', error);
     }

@@ -1,10 +1,17 @@
+// Purpose: Student dashboard for submitting projects and tracking progress.
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-toastify';
 import { FiPlus, FiFolder, FiClock, FiCheckCircle, FiUpload } from 'react-icons/fi';
-import API from '../utils/api';
+import { userService } from '../services/userService';
+import { projectService } from '../services/projectService';
+import usePageTitle from '../hooks/usePageTitle';
 import Navbar from '../components/Navbar';
+import DashboardHeader from '../components/ui/DashboardHeader';
+import StatsCard from '../components/ui/StatsCard';
+import StatusBadge from '../components/ui/StatusBadge';
+import EmptyState from '../components/ui/EmptyState';
 
 const StudentDashboard = () => {
   const { user } = useAuth();
@@ -23,22 +30,27 @@ const StudentDashboard = () => {
     proposalFile: null
   });
 
+  usePageTitle('Student Dashboard | FYP Management');
+
   useEffect(() => {
     fetchDashboardData();
   }, []);
 
   const fetchDashboardData = async () => {
     try {
-      const [statsRes, projectsRes, teachersRes] = await Promise.all([
-        API.get('/users/stats/dashboard'),
-        API.get('/projects'),
-        API.get('/users/teachers')
+      const [dashboardStats, allProjects, allTeachers] = await Promise.all([
+        userService.getDashboardStats(),
+        projectService.getProjects(),
+        userService.getTeachers()
       ]);
-      setStats(statsRes.data.stats);
-      setProjects(projectsRes.data.projects);
-      setTeachers(teachersRes.data.teachers);
+      setStats(dashboardStats);
+      setProjects(allProjects);
+      setTeachers(allTeachers);
     } catch (error) {
-      toast.error('Error loading dashboard data');
+      // During logout, protected APIs return 401; avoid unnecessary red toasts.
+      if (error.response && error.response.status !== 401) {
+        toast.error('Error loading dashboard data');
+      }
     }
   };
 
@@ -79,9 +91,7 @@ const StudentDashboard = () => {
         data.append('proposalFile', formData.proposalFile);
       }
 
-      await API.post('/projects', data, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
+      await projectService.createProject(data);
 
       toast.success('Project proposal submitted successfully!');
       setShowModal(false);
@@ -102,7 +112,7 @@ const StudentDashboard = () => {
 
   const handleRequestSupervisor = async (projectId, supervisorId) => {
     try {
-      await API.put(`/projects/${projectId}/request-supervisor`, { supervisorId });
+      await projectService.requestSupervisor(projectId, supervisorId);
       toast.success('Supervisor request sent!');
       fetchDashboardData();
     } catch (error) {
@@ -110,71 +120,22 @@ const StudentDashboard = () => {
     }
   };
 
-  const getStatusBadge = (status) => {
-    const badges = {
-      proposal: 'badge-warning',
-      'in-progress': 'badge-primary',
-      completed: 'badge-success',
-      rejected: 'badge-danger'
-    };
-    return badges[status] || 'badge-secondary';
-  };
-
   return (
     <>
       <Navbar />
       <div className="dashboard-container">
-        <div className="dashboard-header">
-          <div>
-            <h1 className="dashboard-title">Welcome, {user?.name}!</h1>
-            <p className="dashboard-subtitle">Student Dashboard</p>
-          </div>
+        <DashboardHeader title={`Welcome, ${user?.name || 'Student'}!`} subtitle="Student Dashboard">
           <button className="btn btn-primary" onClick={() => setShowModal(true)}>
             <FiPlus /> Submit New Project
           </button>
-        </div>
+        </DashboardHeader>
 
         {/* Stats Cards */}
         <div className="stats-grid">
-          <div className="stat-card">
-            <div className="stat-icon primary">
-              <FiFolder />
-            </div>
-            <div className="stat-info">
-              <h3>{stats.myProjects || 0}</h3>
-              <p>My Projects</p>
-            </div>
-          </div>
-          
-          <div className="stat-card">
-            <div className="stat-icon warning">
-              <FiClock />
-            </div>
-            <div className="stat-info">
-              <h3>{stats.pending || 0}</h3>
-              <p>Pending Approval</p>
-            </div>
-          </div>
-          
-          <div className="stat-card">
-            <div className="stat-icon primary">
-              <FiClock />
-            </div>
-            <div className="stat-info">
-              <h3>{stats.inProgress || 0}</h3>
-              <p>In Progress</p>
-            </div>
-          </div>
-          
-          <div className="stat-card">
-            <div className="stat-icon success">
-              <FiCheckCircle />
-            </div>
-            <div className="stat-info">
-              <h3>{stats.completed || 0}</h3>
-              <p>Completed</p>
-            </div>
-          </div>
+          <StatsCard icon={FiFolder} variant="primary" value={stats.myProjects} label="My Projects" />
+          <StatsCard icon={FiClock} variant="warning" value={stats.pending} label="Pending Approval" />
+          <StatsCard icon={FiClock} variant="primary" value={stats.inProgress} label="In Progress" />
+          <StatsCard icon={FiCheckCircle} variant="success" value={stats.completed} label="Completed" />
         </div>
 
         {/* Projects List */}
@@ -184,12 +145,7 @@ const StudentDashboard = () => {
           </div>
           <div className="card-body">
             {projects.length === 0 ? (
-              <div className="empty-state">
-                <div className="empty-state-icon">
-                  <FiFolder size={48} />
-                </div>
-                <p>No projects yet. Submit your first project proposal!</p>
-              </div>
+              <EmptyState icon={FiFolder} message="No projects yet. Submit your first project proposal!" />
             ) : (
               <div className="table-container">
                 <table>
@@ -213,9 +169,7 @@ const StudentDashboard = () => {
                             <>
                               {project.supervisor.name}
                               <br />
-                              <span className={`badge badge-${project.supervisorStatus === 'accepted' ? 'success' : project.supervisorStatus === 'pending' ? 'warning' : 'danger'}`}>
-                                {project.supervisorStatus}
-                              </span>
+                              <StatusBadge status={project.supervisorStatus} />
                             </>
                           ) : (
                             <select
@@ -233,13 +187,9 @@ const StudentDashboard = () => {
                           )}
                         </td>
                         <td>
-                          <span className={`badge ${getStatusBadge(project.status)}`}>
-                            {project.status}
-                          </span>
+                          <StatusBadge status={project.status} />
                           <br />
-                          <span className={`badge badge-${project.adminStatus === 'approved' ? 'success' : project.adminStatus === 'pending' ? 'warning' : 'danger'}`}>
-                            Admin: {project.adminStatus}
-                          </span>
+                          <StatusBadge status={project.adminStatus} prefix="Admin" />
                         </td>
                         <td>
                           <div className="progress-bar">

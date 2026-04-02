@@ -1,10 +1,14 @@
+// Purpose: Detailed single-project view with files, feedback, and progress updates.
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-toastify';
 import { FiDownload, FiUpload, FiSend, FiArrowLeft } from 'react-icons/fi';
-import API from '../utils/api';
+import { projectService } from '../services/projectService';
+import { fileService } from '../services/fileService';
+import usePageTitle from '../hooks/usePageTitle';
 import Navbar from '../components/Navbar';
+import StatusBadge from '../components/ui/StatusBadge';
 
 const ProjectDetails = () => {
   const { id } = useParams();
@@ -17,15 +21,17 @@ const ProjectDetails = () => {
   const [uploadTitle, setUploadTitle] = useState('');
   const [progress, setProgress] = useState(0);
 
+  usePageTitle('Project Details | FYP Management');
+
   useEffect(() => {
     fetchProject();
   }, [id]);
 
   const fetchProject = async () => {
     try {
-      const response = await API.get(`/projects/${id}`);
-      setProject(response.data.project);
-      setProgress(response.data.project.progress);
+      const projectData = await projectService.getProjectById(id);
+      setProject(projectData);
+      setProgress(projectData.progress);
     } catch (error) {
       toast.error('Error loading project details');
       navigate('/');
@@ -35,10 +41,8 @@ const ProjectDetails = () => {
 
   const handleDownloadFile = async (filename) => {
     try {
-      const response = await API.get(`/files/download/${filename}`, {
-        responseType: 'blob'
-      });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const fileBlob = await fileService.download(filename);
+      const url = window.URL.createObjectURL(new Blob([fileBlob]));
       const link = document.createElement('a');
       link.href = url;
       link.setAttribute('download', filename);
@@ -53,7 +57,7 @@ const ProjectDetails = () => {
   const handleFeedbackSubmit = async (e) => {
     e.preventDefault();
     try {
-      await API.post(`/projects/${id}/feedback`, { message: feedback });
+      await projectService.addFeedback(id, feedback);
       toast.success('Feedback added successfully!');
       setFeedback('');
       fetchProject();
@@ -69,9 +73,7 @@ const ProjectDetails = () => {
       formData.append('document', uploadFile);
       formData.append('title', uploadTitle);
 
-      await API.post(`/projects/${id}/documents`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
+      await projectService.addDocument(id, formData);
 
       toast.success('Document uploaded successfully!');
       setUploadFile(null);
@@ -84,7 +86,7 @@ const ProjectDetails = () => {
 
   const handleProgressUpdate = async () => {
     try {
-      await API.put(`/projects/${id}/progress`, { progress });
+      await projectService.updateProgress(id, progress);
       toast.success('Progress updated!');
       fetchProject();
     } catch (error) {
@@ -112,12 +114,8 @@ const ProjectDetails = () => {
           <div className="card-header">
             <h2 className="card-title">{project.title}</h2>
             <div className="flex gap-1">
-              <span className={`badge badge-${project.status === 'completed' ? 'success' : project.status === 'in-progress' ? 'primary' : 'warning'}`}>
-                {project.status}
-              </span>
-              <span className={`badge badge-${project.adminStatus === 'approved' ? 'success' : project.adminStatus === 'pending' ? 'warning' : 'danger'}`}>
-                Admin: {project.adminStatus}
-              </span>
+              <StatusBadge status={project.status} />
+              <StatusBadge status={project.adminStatus} prefix="Admin" />
             </div>
           </div>
           <div className="card-body">
@@ -132,9 +130,7 @@ const ProjectDetails = () => {
                   <p><strong>Supervisor:</strong> {project.supervisor.name}</p>
                   <p><strong>Email:</strong> {project.supervisor.email}</p>
                   <p><strong>Status:</strong> 
-                    <span className={`badge badge-${project.supervisorStatus === 'accepted' ? 'success' : project.supervisorStatus === 'pending' ? 'warning' : 'danger'}`}>
-                      {project.supervisorStatus}
-                    </span>
+                    <StatusBadge status={project.supervisorStatus} />
                   </p>
                 </div>
               )}

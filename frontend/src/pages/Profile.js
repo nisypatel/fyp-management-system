@@ -1,8 +1,11 @@
+// Purpose: User profile screen for viewing/updating account and password.
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-toastify';
-import API from '../utils/api';
+import { authService } from '../services/authService';
+import usePageTitle from '../hooks/usePageTitle';
 import Navbar from '../components/Navbar';
+import { FaEye, FaEyeSlash } from 'react-icons/fa';
 
 const Profile = () => {
   const { user, updateUser } = useAuth();
@@ -15,14 +18,23 @@ const Profile = () => {
     newPassword: '',
     confirmPassword: ''
   });
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  usePageTitle('Profile | FYP Management');
 
   const handleProfileUpdate = async (e) => {
     e.preventDefault();
+    if (!window.confirm('Are you sure you want to update your profile details?')) {
+      return;
+    }
+    
     setLoading(true);
     try {
-      const response = await API.put('/auth/updateprofile', formData);
-      updateUser(response.data.user);
+      const updatedUser = await authService.updateProfile(formData);
+      updateUser(updatedUser);
       toast.success('Profile updated successfully!');
     } catch (error) {
       toast.error('Error updating profile');
@@ -36,9 +48,14 @@ const Profile = () => {
       toast.error('Passwords do not match');
       return;
     }
+    
+    if (!window.confirm('Are you sure you want to change your password? You will be required to use the new password on your next login.')) {
+      return;
+    }
+
     setLoading(true);
     try {
-      await API.put('/auth/updatepassword', {
+      await authService.updatePassword({
         currentPassword: passwordData.currentPassword,
         newPassword: passwordData.newPassword
       });
@@ -61,13 +78,46 @@ const Profile = () => {
             <h2 className="card-title">User Information</h2>
           </div>
           <div className="card-body">
-            <p><strong>Name:</strong> {user?.name}</p>
-            <p><strong>Email:</strong> {user?.email}</p>
-            <p><strong>Role:</strong> <span className="badge badge-primary">{user?.role?.toUpperCase()}</span></p>
-            {user?.department && <p><strong>Department:</strong> {user.department}</p>}
-            {user?.enrollmentNumber && <p><strong>Enrollment Number:</strong> {user.enrollmentNumber}</p>}
-            {user?.employeeId && <p><strong>Employee ID:</strong> {user.employeeId}</p>}
-            {user?.phone && <p><strong>Phone:</strong> {user.phone}</p>}
+            <div className="user-details-grid">
+              <div className="user-detail-item">
+                <span className="user-detail-label">Name</span>
+                <span className="user-detail-value">{user?.name}</span>
+              </div>
+              <div className="user-detail-item">
+                <span className="user-detail-label">Email</span>
+                <span className="user-detail-value">{user?.email}</span>
+              </div>
+              <div className="user-detail-item">
+                <span className="user-detail-label">Role</span>
+                <span className="user-detail-value">
+                  <span className="badge badge-primary">{user?.role?.toUpperCase()}</span>
+                </span>
+              </div>
+              {user?.department && (
+                <div className="user-detail-item">
+                  <span className="user-detail-label">Department</span>
+                  <span className="user-detail-value">{user.department}</span>
+                </div>
+              )}
+              {user?.enrollmentNumber && (
+                <div className="user-detail-item">
+                  <span className="user-detail-label">Enrollment Number</span>
+                  <span className="user-detail-value">{user.enrollmentNumber}</span>
+                </div>
+              )}
+              {user?.employeeId && (
+                <div className="user-detail-item">
+                  <span className="user-detail-label">Employee ID</span>
+                  <span className="user-detail-value">{user.employeeId}</span>
+                </div>
+              )}
+              {user?.phone && (
+                <div className="user-detail-item">
+                  <span className="user-detail-label">Phone</span>
+                  <span className="user-detail-value">{user.phone}</span>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -112,34 +162,50 @@ const Profile = () => {
             <form onSubmit={handlePasswordUpdate}>
               <div className="form-group">
                 <label className="form-label">Current Password</label>
-                <input
-                  type="password"
-                  className="form-input"
-                  value={passwordData.currentPassword}
-                  onChange={(e) => setPasswordData({ ...passwordData, currentPassword: e.target.value })}
-                  required
-                />
+                <div className="password-wrapper">
+                  <input
+                    type={showCurrentPassword ? "text" : "password"}
+                    className="form-input"
+                    value={passwordData.currentPassword}
+                    onChange={(e) => setPasswordData({ ...passwordData, currentPassword: e.target.value })}
+                    required
+                  />
+                  <button type="button" className="password-toggle" onClick={() => setShowCurrentPassword(!showCurrentPassword)}>
+                    {showCurrentPassword ? <FaEyeSlash /> : <FaEye />}
+                  </button>
+                </div>
               </div>
               <div className="form-group">
                 <label className="form-label">New Password</label>
-                <input
-                  type="password"
-                  className="form-input"
-                  value={passwordData.newPassword}
-                  onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
-                  required
-                  minLength={6}
-                />
+                <div className="password-wrapper">
+                  <input
+                    type={showNewPassword ? "text" : "password"}
+                    className="form-input"
+                    value={passwordData.newPassword}
+                    onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
+                    required
+                    placeholder="Min 8 chars, letters & numbers"
+                    minLength={8}
+                  />
+                  <button type="button" className="password-toggle" onClick={() => setShowNewPassword(!showNewPassword)}>
+                    {showNewPassword ? <FaEyeSlash /> : <FaEye />}
+                  </button>
+                </div>
               </div>
               <div className="form-group">
                 <label className="form-label">Confirm New Password</label>
-                <input
-                  type="password"
-                  className="form-input"
-                  value={passwordData.confirmPassword}
-                  onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
-                  required
-                />
+                <div className="password-wrapper">
+                  <input
+                    type={showConfirmPassword ? "text" : "password"}
+                    className="form-input"
+                    value={passwordData.confirmPassword}
+                    onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
+                    required
+                  />
+                  <button type="button" className="password-toggle" onClick={() => setShowConfirmPassword(!showConfirmPassword)}>
+                    {showConfirmPassword ? <FaEyeSlash /> : <FaEye />}
+                  </button>
+                </div>
               </div>
               <button type="submit" className="btn btn-primary" disabled={loading}>
                 {loading ? 'Updating...' : 'Change Password'}

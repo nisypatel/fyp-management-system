@@ -1,10 +1,17 @@
+// Purpose: Admin dashboard for project approvals and user management.
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-toastify';
 import { FiUsers, FiFolder, FiCheckCircle, FiClock, FiPlus, FiEdit, FiTrash } from 'react-icons/fi';
-import API from '../utils/api';
+import { userService } from '../services/userService';
+import { projectService } from '../services/projectService';
+import { getStatusBadgeClass } from '../utils/statusUtils';
+import usePageTitle from '../hooks/usePageTitle';
 import Navbar from '../components/Navbar';
+import DashboardHeader from '../components/ui/DashboardHeader';
+import StatsCard from '../components/ui/StatsCard';
+import StatusBadge from '../components/ui/StatusBadge';
 
 const AdminDashboard = () => {
   const { user } = useAuth();
@@ -27,31 +34,37 @@ const AdminDashboard = () => {
     phone: ''
   });
 
+  usePageTitle('Admin Dashboard | FYP Management');
+
   useEffect(() => {
-    fetchDashboardData();
-  }, [activeTab]);
+    if (user) {
+      fetchDashboardData();
+    }
+  }, [activeTab, user]);
 
   const fetchDashboardData = async () => {
     try {
-      const statsRes = await API.get('/users/stats/dashboard');
-      setStats(statsRes.data.stats);
+      const dashboardStats = await userService.getDashboardStats();
+      setStats(dashboardStats);
 
       if (activeTab === 'projects') {
-        const projectsRes = await API.get('/projects');
-        setProjects(projectsRes.data.projects);
+        const allProjects = await projectService.getProjects();
+        setProjects(allProjects);
       } else if (activeTab === 'users') {
-        const usersRes = await API.get('/users');
-        setUsers(usersRes.data.users);
+        const allUsers = await userService.getUsers();
+        setUsers(allUsers);
       }
     } catch (error) {
-      toast.error('Error loading dashboard data');
+      if (error.response && error.response.status !== 401) {
+        toast.error('Error loading dashboard data');
+      }
     }
   };
 
   const handleProjectApproval = async (projectId, status) => {
     setLoading(true);
     try {
-      await API.put(`/projects/${projectId}/admin-approval`, { status });
+      await projectService.adminApprove(projectId, status);
       toast.success(`Project ${status} successfully!`);
       fetchDashboardData();
     } catch (error) {
@@ -66,10 +79,10 @@ const AdminDashboard = () => {
 
     try {
       if (editUser) {
-        await API.put(`/users/${editUser._id}`, userForm);
+        await userService.updateUser(editUser._id, userForm);
         toast.success('User updated successfully!');
       } else {
-        await API.post('/users', userForm);
+        await userService.createUser(userForm);
         toast.success('User created successfully!');
       }
       setShowUserModal(false);
@@ -85,7 +98,7 @@ const AdminDashboard = () => {
     if (!window.confirm('Are you sure you want to delete this user?')) return;
 
     try {
-      await API.delete(`/users/${userId}`);
+      await userService.deleteUser(userId);
       toast.success('User deleted successfully!');
       fetchDashboardData();
     } catch (error) {
@@ -122,70 +135,18 @@ const AdminDashboard = () => {
     });
   };
 
-  const getStatusBadge = (status) => {
-    const badges = {
-      proposal: 'badge-warning',
-      'in-progress': 'badge-primary',
-      completed: 'badge-success',
-      rejected: 'badge-danger',
-      pending: 'badge-warning',
-      approved: 'badge-success'
-    };
-    return badges[status] || 'badge-secondary';
-  };
-
   return (
     <>
       <Navbar />
       <div className="dashboard-container">
-        <div className="dashboard-header">
-          <div>
-            <h1 className="dashboard-title">Admin Dashboard</h1>
-            <p className="dashboard-subtitle">Manage users and projects</p>
-          </div>
-        </div>
+        <DashboardHeader title="Admin Dashboard" subtitle="Manage users and projects" />
 
         {/* Stats Cards */}
         <div className="stats-grid">
-          <div className="stat-card">
-            <div className="stat-icon primary">
-              <FiUsers />
-            </div>
-            <div className="stat-info">
-              <h3>{stats.totalStudents || 0}</h3>
-              <p>Total Students</p>
-            </div>
-          </div>
-          
-          <div className="stat-card">
-            <div className="stat-icon success">
-              <FiUsers />
-            </div>
-            <div className="stat-info">
-              <h3>{stats.totalTeachers || 0}</h3>
-              <p>Total Teachers</p>
-            </div>
-          </div>
-          
-          <div className="stat-card">
-            <div className="stat-icon primary">
-              <FiFolder />
-            </div>
-            <div className="stat-info">
-              <h3>{stats.totalProjects || 0}</h3>
-              <p>Total Projects</p>
-            </div>
-          </div>
-          
-          <div className="stat-card">
-            <div className="stat-icon warning">
-              <FiClock />
-            </div>
-            <div className="stat-info">
-              <h3>{stats.pendingProjects || 0}</h3>
-              <p>Pending Approval</p>
-            </div>
-          </div>
+          <StatsCard icon={FiUsers} variant="primary" value={stats.totalStudents} label="Total Students" />
+          <StatsCard icon={FiUsers} variant="success" value={stats.totalTeachers} label="Total Teachers" />
+          <StatsCard icon={FiFolder} variant="primary" value={stats.totalProjects} label="Total Projects" />
+          <StatsCard icon={FiClock} variant="warning" value={stats.pendingProjects} label="Pending Approval" />
         </div>
 
         {/* Tabs */}
@@ -222,33 +183,9 @@ const AdminDashboard = () => {
           <div className="card-body">
             {activeTab === 'overview' && (
               <div className="stats-grid">
-                <div className="stat-card">
-                  <div className="stat-icon success">
-                    <FiCheckCircle />
-                  </div>
-                  <div className="stat-info">
-                    <h3>{stats.approvedProjects || 0}</h3>
-                    <p>Approved Projects</p>
-                  </div>
-                </div>
-                <div className="stat-card">
-                  <div className="stat-icon primary">
-                    <FiFolder />
-                  </div>
-                  <div className="stat-info">
-                    <h3>{stats.inProgressProjects || 0}</h3>
-                    <p>In Progress</p>
-                  </div>
-                </div>
-                <div className="stat-card">
-                  <div className="stat-icon success">
-                    <FiCheckCircle />
-                  </div>
-                  <div className="stat-info">
-                    <h3>{stats.completedProjects || 0}</h3>
-                    <p>Completed</p>
-                  </div>
-                </div>
+                <StatsCard icon={FiCheckCircle} variant="success" value={stats.approvedProjects} label="Approved Projects" />
+                <StatsCard icon={FiFolder} variant="primary" value={stats.inProgressProjects} label="In Progress" />
+                <StatsCard icon={FiCheckCircle} variant="success" value={stats.completedProjects} label="Completed" />
               </div>
             )}
 
@@ -280,9 +217,7 @@ const AdminDashboard = () => {
                             <>
                               {project.supervisor.name}
                               <br />
-                              <span className={`badge ${getStatusBadge(project.supervisorStatus)}`}>
-                                {project.supervisorStatus}
-                              </span>
+                              <StatusBadge status={project.supervisorStatus} />
                             </>
                           ) : (
                             <span className="badge badge-secondary">No Supervisor</span>
@@ -290,14 +225,10 @@ const AdminDashboard = () => {
                         </td>
                         <td>{project.category}</td>
                         <td>
-                          <span className={`badge ${getStatusBadge(project.status)}`}>
-                            {project.status}
-                          </span>
+                          <StatusBadge status={project.status} />
                         </td>
                         <td>
-                          <span className={`badge ${getStatusBadge(project.adminStatus)}`}>
-                            {project.adminStatus}
-                          </span>
+                          <StatusBadge status={project.adminStatus} />
                         </td>
                         <td>
                           <div className="flex gap-1">

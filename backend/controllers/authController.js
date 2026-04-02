@@ -1,5 +1,7 @@
 ﻿const User = require('../models/User');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
+const sendEmail = require('../utils/sendEmail');
 
 // Generate JWT Token
 const generateToken = (id) => {
@@ -57,13 +59,39 @@ exports.register = async (req, res) => {
 
     const { name, email, password, role, department, enrollmentNumber, employeeId, phone } = req.body;
 
-    // Check if user exists
-    const userExists = await User.findOne({ email });
-    if (userExists) {
+    // Check if user email exists
+    const emailExists = await User.findOne({ email });
+    if (emailExists) {
       return res.status(400).json({
         success: false,
-        message: 'User already exists'
+        message: 'A user with this email already exists'
       });
+    }
+
+    // Check enrollment number for students
+    if (role === 'student' || !role) {
+      if (enrollmentNumber) {
+        const enrollmentExists = await User.findOne({ enrollmentNumber });
+        if (enrollmentExists) {
+          return res.status(400).json({
+            success: false,
+            message: 'A student with this enrollment number already exists'
+          });
+        }
+      }
+    }
+
+    // Check employee ID for teachers
+    if (role === 'teacher') {
+      if (employeeId) {
+        const employeeExists = await User.findOne({ employeeId });
+        if (employeeExists) {
+          return res.status(400).json({
+            success: false,
+            message: 'A teacher with this employee ID already exists'
+          });
+        }
+      }
     }
 
     // Create user
@@ -84,6 +112,18 @@ exports.register = async (req, res) => {
     }
 
     const user = await User.create(userData);
+
+    // Send welcome email
+    try {
+      await sendEmail({
+        email: user.email,
+        subject: 'Welcome to FYP System',
+        message: `Hi ${user.name},\n\nWelcome to the FYP Management System! Your account has been successfully created as a ${user.role}.\n\nBest regards,\nFYP Team`
+      });
+    } catch (err) {
+      console.log('Error sending welcome email:', err.message);
+      // We don't want to fail registration if email fails
+    }
 
     sendTokenResponse(user, 201, res);
   } catch (error) {
@@ -219,13 +259,23 @@ exports.updatePassword = async (req, res) => {
 
     // Check current password
     if (!(await user.matchPassword(req.body.currentPassword))) {
-      return res.status(401).json({
+      return res.status(400).json({
         success: false,
-        message: 'Password is incorrect'
+        message: 'Current password is incorrect'
       });
     }
 
-    user.password = req.body.newPassword;
+    const { newPassword } = req.body;
+
+    // Strong password validation
+    if (!newPassword || newPassword.length < 8 || !/\d/.test(newPassword) || !/[a-zA-Z]/.test(newPassword)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 8 characters long and contain both letters and numbers'
+      });
+    }
+
+    user.password = newPassword;
     await user.save();
 
     sendTokenResponse(user, 200, res);
@@ -234,6 +284,90 @@ exports.updatePassword = async (req, res) => {
       success: false,
       message: error.message
     });
+  }
+};
+
+// @desc    Forgot password
+// @route   POST /api/auth/forgotpassword
+// @access  Public
+exports.forgotPassword = async (req, res) => {
+  try {
+    const user = await User.findOne({ email: req.body.email });
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'There is no user with that email' });
+    }
+
+    // Get reset token
+    const resetToken = user.getResetPasswordToken();
+    await user.save({ validateBeforeSave: false });
+
+    // Create reset url
+    // Use frontend URL, typically from environment config, default to localhost
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const resetUrl = `${frontendUrl}/reset-password/${resetToken}`;
+
+    const message = `You are receiving this email because you (or someone else) has requested the reset of a password. Please make a PUT request to: \n\n ${resetUrl}`;
+
+    try {
+      await sendEmail({
+        email: user.email,
+        subject: 'Password reset token',
+        message
+      });
+
+      res.status(200).json({ success: true, message: 'Email sent' });
+    } catch (err) {
+      console.error(err);
+      user.resetPasswordToken = undefined;
+      user.resetPasswordExpire = undefined;
+      await user.save({ validateBeforeSave: false });
+
+      return res.status(500).json({ success: false, message: 'Email could not be sent' });
+    }
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Reset password
+// @route   PUT /api/auth/resetpassword/:token
+// @access  Public
+exports.resetPassword = async (req, res) => {
+  try {
+    // Get hashed token
+    const resetPasswordToken = crypto
+      .createHash('sha256')
+      .update(req.params.token)
+      .digest('hex');
+
+    const user = await User.findOne({
+      resetPasswordToken,
+      resetPasswordExpire: { $gt: Date.now() }
+    });
+
+    if (!user) {
+      return res.status(400).json({ success: false, message: 'Invalid token' });
+    }
+
+    const { password } = req.body;
+
+    // Strong password validation
+    if (!password || password.length < 8 || !/\d/.test(password) || !/[a-zA-Z]/.test(password)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 8 characters long and contain both letters and numbers'
+      });
+    }
+
+    // Set new password
+    user.password = password;
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpire = undefined;
+    await user.save();
+
+    sendTokenResponse(user, 200, res);
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
   }
 };
 

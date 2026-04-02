@@ -17,34 +17,40 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     const loadUser = async () => {
-      const token = localStorage.getItem('token');
-      const savedUser = localStorage.getItem('user');
-
-      if (token && savedUser) {
-        try {
-          setUser(JSON.parse(savedUser));
-          API.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-        } catch (error) {
-          console.error('Error loading user:', error);
-          localStorage.removeItem('token');
-          localStorage.removeItem('user');
-        }
+      try {
+        const response = await API.get('/auth/me');
+        setUser(response.data.user);
+      } catch (error) {
+        setUser(null);
       }
       setLoading(false);
     };
 
     loadUser();
+
+    // Listen for tab sync events (login/logout from other tabs)
+    const handleStorageChange = (e) => {
+      if (e.key === 'session-sync') {
+        loadUser(); // Re-verify with backend to get the exact identical state
+      }
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
+
+  const triggerSync = () => {
+    // Ping localStorage to alert other tabs to reload user state
+    localStorage.setItem('session-sync', Date.now().toString());
+  };
 
   const login = async (email, password) => {
     try {
       const response = await API.post('/auth/login', { email, password });
-      const { token, user } = response.data;
+      const { user } = response.data;
       
-      localStorage.setItem('token', token);
-      localStorage.setItem('user', JSON.stringify(user));
-      API.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       setUser(user);
+      triggerSync();
       
       return { success: true };
     } catch (error) {
@@ -58,12 +64,10 @@ export const AuthProvider = ({ children }) => {
   const register = async (userData) => {
     try {
       const response = await API.post('/auth/register', userData);
-      const { token, user } = response.data;
+      const { user } = response.data;
       
-      localStorage.setItem('token', token);
-      localStorage.setItem('user', JSON.stringify(user));
-      API.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       setUser(user);
+      triggerSync();
       
       return { success: true };
     } catch (error) {
@@ -74,16 +78,18 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const logout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    delete API.defaults.headers.common['Authorization'];
+  const logout = async () => {
+    try {
+      await API.post('/auth/logout');
+    } catch (error) {
+      console.error('Logout error', error);
+    }
     setUser(null);
+    triggerSync();
   };
 
   const updateUser = (updatedUser) => {
     setUser(updatedUser);
-    localStorage.setItem('user', JSON.stringify(updatedUser));
   };
 
   const value = {

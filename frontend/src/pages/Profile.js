@@ -61,11 +61,13 @@ const Profile = () => {
             <h2 className="card-title">User Information</h2>
           </div>
           <div className="card-body">
+            <p><strong>Name:</strong> {user?.name}</p>
             <p><strong>Email:</strong> {user?.email}</p>
-            <p><strong>Role:</strong> <span className="badge badge-primary">{user?.role}</span></p>
-            <p><strong>Department:</strong> {user?.department}</p>
+            <p><strong>Role:</strong> <span className="badge badge-primary">{user?.role?.toUpperCase()}</span></p>
+            {user?.department && <p><strong>Department:</strong> {user.department}</p>}
             {user?.enrollmentNumber && <p><strong>Enrollment Number:</strong> {user.enrollmentNumber}</p>}
             {user?.employeeId && <p><strong>Employee ID:</strong> {user.employeeId}</p>}
+            {user?.phone && <p><strong>Phone:</strong> {user.phone}</p>}
           </div>
         </div>
 

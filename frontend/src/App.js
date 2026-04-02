@@ -33,6 +33,21 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
   return children;
 };
 
+// Public Only Route Component (Cannot access if logged in)
+const PublicRoute = ({ children }) => {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return <div className="loading">Loading...</div>;
+  }
+
+  if (user) {
+    return <Navigate to="/" />;
+  }
+
+  return children;
+};
+
 // Dashboard Router
 const DashboardRouter = () => {
   const { user } = useAuth();
@@ -59,8 +74,8 @@ function App() {
       <Router>
         <div className="App">
           <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
+            <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
+            <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
             
             <Route 
               path="/" 

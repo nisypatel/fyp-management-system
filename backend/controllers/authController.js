@@ -1,4 +1,4 @@
-const User = require('../models/User');
+﻿const User = require('../models/User');
 const jwt = require('jsonwebtoken');
 
 // Generate JWT Token
@@ -8,11 +8,53 @@ const generateToken = (id) => {
   });
 };
 
+// Get token from model, create cookie and send response
+const sendTokenResponse = (user, statusCode, res) => {
+  // Create token
+  const token = generateToken(user._id);
+
+  const options = {
+    expires: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax'
+  };
+
+  res.status(statusCode).cookie('token', token, options).json({
+    success: true,
+    user: {
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      department: user.department,
+      enrollmentNumber: user.enrollmentNumber,
+      employeeId: user.employeeId
+    }
+  });
+};
+
 // @desc    Register user
 // @route   POST /api/auth/register
 // @access  Public
 exports.register = async (req, res) => {
   try {
+    // Check if user is already logged in (verify any existing token cookie)
+    if (req.cookies.token && req.cookies.token !== 'none') {
+      try {
+        const decoded = jwt.verify(req.cookies.token, process.env.JWT_SECRET);
+        const existingUser = await User.findById(decoded.id);
+        if (existingUser) {
+          return res.status(403).json({
+            success: false,
+            message: 'You are already logged in. Please logout first.'
+          });
+        }
+      } catch (err) {
+        // Token invalid, proceed with registration
+      }
+    }
+
     const { name, email, password, role, department, enrollmentNumber, employeeId, phone } = req.body;
 
     // Check if user exists
@@ -43,21 +85,7 @@ exports.register = async (req, res) => {
 
     const user = await User.create(userData);
 
-    const token = generateToken(user._id);
-
-    res.status(201).json({
-      success: true,
-      token,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        department: user.department,
-        enrollmentNumber: user.enrollmentNumber,
-        employeeId: user.employeeId
-      }
-    });
+    sendTokenResponse(user, 201, res);
   } catch (error) {
     res.status(400).json({
       success: false,
@@ -72,6 +100,24 @@ exports.register = async (req, res) => {
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
+
+    // Check if user is already logged in (verify any existing token cookie)
+    if (req.cookies.token && req.cookies.token !== 'none') {
+      try {
+        const decoded = jwt.verify(req.cookies.token, process.env.JWT_SECRET);
+        const existingUser = await User.findById(decoded.id);
+        
+        // Deny login if they are currently logged in as ANY active user
+        if (existingUser && existingUser.isActive) {
+          return res.status(403).json({
+            success: false,
+            message: 'Another user session is active. Please logout first.'
+          });
+        }
+      } catch (err) {
+        // Token invalid, proceed with normal login
+      }
+    }
 
     // Validate email & password
     if (!email || !password) {
@@ -109,21 +155,7 @@ exports.login = async (req, res) => {
       });
     }
 
-    const token = generateToken(user._id);
-
-    res.status(200).json({
-      success: true,
-      token,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        department: user.department,
-        enrollmentNumber: user.enrollmentNumber,
-        employeeId: user.employeeId
-      }
-    });
+    sendTokenResponse(user, 200, res);
   } catch (error) {
     res.status(400).json({
       success: false,
@@ -196,12 +228,7 @@ exports.updatePassword = async (req, res) => {
     user.password = req.body.newPassword;
     await user.save();
 
-    const token = generateToken(user._id);
-
-    res.status(200).json({
-      success: true,
-      token
-    });
+    sendTokenResponse(user, 200, res);
   } catch (error) {
     res.status(400).json({
       success: false,
@@ -209,3 +236,20 @@ exports.updatePassword = async (req, res) => {
     });
   }
 };
+
+// @desc    Log user out / clear cookie
+// @route   POST /api/auth/logout
+// @access  Public
+exports.logout = (req, res) => {
+  res.cookie('token', 'none', {
+    expires: new Date(Date.now() + 10 * 1000),
+    httpOnly: true
+  });
+
+  res.status(200).json({
+    success: true,
+    data: {}
+  });
+};
+
+

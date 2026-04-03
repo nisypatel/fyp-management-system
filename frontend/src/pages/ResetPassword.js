@@ -50,8 +50,8 @@ const ResetPassword = () => {
             <h1 className="auth-title">Reset Password</h1>
             <p className="auth-subtitle">Enter your new strong password</p>
 
-            {error && <div className="error-message">{error}</div>}
-            {message && <div style={{ color: 'var(--success-color)', marginBottom: '1rem' }}>{message}</div>}
+            {error && <div style={{ color: '#E11D48', marginBottom: '1rem', backgroundColor: '#FCE4E4', padding: '10px', borderRadius: '4px', borderLeft: '4px solid #E11D48' }}>{error}</div>}
+            {message && <div style={{ color: '#065F46', marginBottom: '1rem', backgroundColor: '#D1FAE5', padding: '10px', borderRadius: '4px', borderLeft: '4px solid #10B981' }}>{message}</div>}
 
             <form onSubmit={handleSubmit}>
               <div className="form-group">

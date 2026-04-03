@@ -1,4 +1,4 @@
-// Purpose: Registration page for new student/teacher users.
+// Purpose: Registration page for new student/faculty users.
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -71,7 +71,7 @@ const Register = () => {
                   <label className="form-label">Role</label>
                   <select name="role" className="form-select" value={formData.role} onChange={handleChange}>
                     <option value="student">Student</option>
-                    <option value="teacher">Teacher</option>
+                    <option value="faculty">Faculty</option>
                   </select>
                 </div>
                 <div className="form-group flex-1">
@@ -89,7 +89,7 @@ const Register = () => {
                   <input type="text" name="enrollmentNumber" className="form-input" value={formData.enrollmentNumber} onChange={handleChange} required />
                 </div>
               )}
-              {formData.role === 'teacher' && (
+              {formData.role === 'faculty' && (
                 <div className="form-group">
                   <label className="form-label">Employee ID</label>
                   <input type="text" name="employeeId" className="form-input" value={formData.employeeId} onChange={handleChange} required />

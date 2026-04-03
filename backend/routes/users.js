@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const {
   getUsers,
-  getTeachers,
+  getFaculty,
   getUser,
   createUser,
   updateUser,
@@ -11,7 +11,7 @@ const {
 } = require('../controllers/userController');
 const { protect, authorize } = require('../middleware/auth');
 
-router.get('/teachers', protect, getTeachers);
+router.get('/faculty', protect, getFaculty);
 router.get('/stats/dashboard', protect, getDashboardStats);
 
 router.route('/')

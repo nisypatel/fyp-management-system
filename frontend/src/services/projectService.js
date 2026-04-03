@@ -1,4 +1,4 @@
-// Purpose: Project related API calls used by student/teacher/admin pages.
+// Purpose: Project related API calls used by student/faculty/admin pages.
 import apiClient from './apiClient';
 
 export const projectService = {
@@ -35,6 +35,15 @@ export const projectService = {
     return response.data.projects;
   },
 
+  async getTeamInvites() {
+    const response = await apiClient.get('/projects/team/invites');
+    return response.data.invites;
+  },
+
+  async respondToTeamInvite(projectId, status) {
+    await apiClient.put(`/projects/${projectId}/team-invite-response`, { status });
+  },
+
   async addFeedback(projectId, message) {
     await apiClient.post(`/projects/${projectId}/feedback`, { message });
   },
@@ -45,7 +54,27 @@ export const projectService = {
     });
   },
 
+  async submitPhase(projectId, phaseId, formData) {
+    await apiClient.put(`/projects/${projectId}/phases/${phaseId}/submit`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+  },
+
+  async evaluatePhase(projectId, phaseId, status, feedback) {
+    await apiClient.put(`/projects/${projectId}/phases/${phaseId}/evaluate`, { status, feedback });
+  },
+
   async updateProgress(projectId, progress) {
     await apiClient.put(`/projects/${projectId}/progress`, { progress });
+  },
+
+  async uploadScreenRecording(projectId, formData) {
+    await apiClient.post(`/projects/${projectId}/screen-recording`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+  },
+
+  async reviewScreenRecording(projectId, status, feedback) {
+    await apiClient.put(`/projects/${projectId}/screen-recording/review`, { status, feedback });
   }
 };

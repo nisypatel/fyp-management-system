@@ -11,10 +11,11 @@ import Register from './pages/Register';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import StudentDashboard from './pages/StudentDashboard';
-import TeacherDashboard from './pages/TeacherDashboard';
+import FacultyDashboard from './pages/FacultyDashboard';
 import AdminDashboard from './pages/AdminDashboard';
 import ProjectDetails from './pages/ProjectDetails';
 import Profile from './pages/Profile';
+import Notifications from './pages/Notifications';
 
 // Protected Route Component
 const ProtectedRoute = ({ children, allowedRoles }) => {
@@ -61,8 +62,8 @@ const DashboardRouter = () => {
   switch (user.role) {
     case 'student':
       return <StudentDashboard />;
-    case 'teacher':
-      return <TeacherDashboard />;
+    case 'faculty':
+      return <FacultyDashboard />;
     case 'admin':
       return <AdminDashboard />;
     default:
@@ -73,7 +74,7 @@ const DashboardRouter = () => {
 function App() {
   return (
     <AuthProvider>
-      <Router>
+      <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <div className="App">
           <Routes>
             <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
@@ -104,6 +105,15 @@ function App() {
               element={
                 <ProtectedRoute>
                   <Profile />
+                </ProtectedRoute>
+              } 
+            />
+            
+            <Route 
+              path="/notifications" 
+              element={
+                <ProtectedRoute>
+                  <Notifications />
                 </ProtectedRoute>
               } 
             />

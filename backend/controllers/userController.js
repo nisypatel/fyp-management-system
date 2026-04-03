@@ -28,19 +28,19 @@ exports.getUsers = async (req, res) => {
   }
 };
 
-// @desc    Get all teachers
-// @route   GET /api/users/teachers
+// @desc    Get all faculty
+// @route   GET /api/users/faculty
 // @access  Private
-exports.getTeachers = async (req, res) => {
+exports.getFaculty = async (req, res) => {
   try {
-    const teachers = await User.find({ role: 'teacher', isActive: true })
+    const faculty = await User.find({ role: 'faculty', isActive: true })
       .select('name email employeeId department')
       .sort('name');
 
     res.status(200).json({
       success: true,
-      count: teachers.length,
-      teachers
+      count: faculty.length,
+      faculty
     });
   } catch (error) {
     res.status(400).json({
@@ -102,7 +102,7 @@ exports.createUser = async (req, res) => {
     if (role === 'student') {
       userData.department = department;
       userData.enrollmentNumber = enrollmentNumber;
-    } else if (role === 'teacher') {
+    } else if (role === 'faculty') {
       userData.department = department;
       userData.employeeId = employeeId;
     }
@@ -207,7 +207,7 @@ exports.getDashboardStats = async (req, res) => {
 
     if (req.user.role === 'admin') {
       const totalStudents = await User.countDocuments({ role: 'student' });
-      const totalTeachers = await User.countDocuments({ role: 'teacher' });
+      const totalFaculty = await User.countDocuments({ role: 'faculty' });
       const totalProjects = await Project.countDocuments();
       const pendingProjects = await Project.countDocuments({ adminStatus: 'pending' });
       const approvedProjects = await Project.countDocuments({ adminStatus: 'approved' });
@@ -216,14 +216,14 @@ exports.getDashboardStats = async (req, res) => {
 
       stats = {
         totalStudents,
-        totalTeachers,
+        totalFaculty,
         totalProjects,
         pendingProjects,
         approvedProjects,
         inProgressProjects,
         completedProjects
       };
-    } else if (req.user.role === 'teacher') {
+    } else if (req.user.role === 'faculty') {
       const totalAssigned = await Project.countDocuments({ 
         supervisor: req.user.id,
         supervisorStatus: 'accepted'
@@ -248,17 +248,31 @@ exports.getDashboardStats = async (req, res) => {
         completed
       };
     } else if (req.user.role === 'student') {
-      const myProjects = await Project.countDocuments({ student: req.user.id });
-      const pending = await Project.countDocuments({ 
-        student: req.user.id,
+      const studentProjectScope = {
+        $or: [
+          { student: req.user.id },
+          {
+            teamMembers: {
+              $elemMatch: {
+                student: req.user.id,
+                inviteStatus: 'accepted'
+              }
+            }
+          }
+        ]
+      };
+
+      const myProjects = await Project.countDocuments(studentProjectScope);
+      const pending = await Project.countDocuments({
+        ...studentProjectScope,
         status: 'proposal'
       });
-      const inProgress = await Project.countDocuments({ 
-        student: req.user.id,
+      const inProgress = await Project.countDocuments({
+        ...studentProjectScope,
         status: 'in-progress'
       });
-      const completed = await Project.countDocuments({ 
-        student: req.user.id,
+      const completed = await Project.countDocuments({
+        ...studentProjectScope,
         status: 'completed'
       });
 

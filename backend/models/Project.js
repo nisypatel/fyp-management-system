@@ -41,8 +41,19 @@ const projectSchema = new mongoose.Schema({
     type: String
   }],
   teamMembers: [{
+    student: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    email: String,
     name: String,
-    enrollmentNumber: String
+    enrollmentNumber: String,
+    inviteStatus: {
+      type: String,
+      enum: ['pending', 'accepted', 'rejected'],
+      default: 'pending'
+    },
+    respondedAt: Date
   }],
   proposalFile: {
     filename: String,
@@ -71,6 +82,32 @@ const projectSchema = new mongoose.Schema({
     enum: ['proposal', 'in-progress', 'completed', 'rejected'],
     default: 'proposal'
   },
+  codeReview: {
+    screenRecording: {
+      filename: String,
+      originalName: String,
+      path: String,
+      size: Number,
+      uploadedAt: Date,
+      uploadedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+      }
+    },
+    status: {
+      type: String,
+      enum: ['pending', 'submitted', 'approved', 'rejected'],
+      default: 'pending'
+    },
+    instructions: String,
+    feedback: String,
+    submittedAt: Date,
+    reviewedAt: Date,
+    reviewedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    }
+  },
   progress: {
     type: Number,
     min: 0,
@@ -92,6 +129,13 @@ const projectSchema = new mongoose.Schema({
         link: String, 
         fileUrl: String, 
         fileName: String,
+        submittedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'User'
+        },
+        videoUrl: String,
+        videoName: String,
+        videoSize: Number,
         comments: String,
         submittedAt: Date
       },

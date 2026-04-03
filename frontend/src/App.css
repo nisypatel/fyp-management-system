@@ -86,18 +86,45 @@ a:hover {
 .navbar-user {
   display: flex;
   align-items: center;
-  gap: 0.9rem;
+  gap: 0.6rem;
+}
+
+.navbar-icon-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.navbar-icon-link {
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid var(--border-color);
+  color: var(--primary-color);
+  background: #fff;
+  transition: background-color 0.2s, border-color 0.2s, color 0.2s;
+}
+
+.navbar-icon-link:hover {
+  border-color: var(--primary-color);
+  background: var(--primary-soft);
+  color: var(--secondary-color);
+  text-decoration: none;
 }
 
 .notification-badge {
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
   border-radius: 999px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   position: relative;
-  background: var(--primary-soft);
+  border: 1.5px solid var(--border-color);
+  background: #fff;
   color: var(--primary-color);
 }
 
@@ -725,9 +752,20 @@ tbody tr:hover {
     flex-wrap: wrap;
   }
 
-  .navbar-menu {
-    order: 3;
-    width: 100%;
+  .navbar-brand {
+    font-size: 1.2rem;
+  }
+
+  .navbar-user {
+    gap: 0.55rem;
+  }
+
+  .navbar-icon-group {
+    gap: 0.35rem;
+  }
+
+  .navbar-user .btn {
+    padding: 0.45rem 0.7rem;
   }
 
   .dashboard-container {

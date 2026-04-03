@@ -27,13 +27,13 @@ const userSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['student', 'teacher', 'admin'],
+    enum: ['student', 'faculty', 'admin'],
     default: 'student'
   },
   department: {
     type: String,
     required: function() {
-      return this.role === 'student' || this.role === 'teacher';
+      return this.role === 'student' || this.role === 'faculty';
     }
   },
   enrollmentNumber: {
@@ -49,7 +49,7 @@ const userSchema = new mongoose.Schema({
     unique: true,
     sparse: true,
     required: function() {
-      return this.role === 'teacher';
+      return this.role === 'faculty';
     }
   },
   phone: {
@@ -79,10 +79,11 @@ userSchema.index({ employeeId: 1 });
 // Encrypt password before saving
 userSchema.pre('save', async function(next) {
   if (!this.isModified('password')) {
-    next();
+    return next();
   }
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
+  next();
 });
 
 // Match password

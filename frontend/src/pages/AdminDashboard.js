@@ -6,12 +6,22 @@ import { toast } from 'react-toastify';
 import { FiUsers, FiFolder, FiCheckCircle, FiClock, FiPlus, FiEdit, FiTrash } from 'react-icons/fi';
 import { userService } from '../services/userService';
 import { projectService } from '../services/projectService';
-import { getStatusBadgeClass } from '../utils/statusUtils';
 import usePageTitle from '../hooks/usePageTitle';
 import Navbar from '../components/Navbar';
 import DashboardHeader from '../components/ui/DashboardHeader';
 import StatsCard from '../components/ui/StatsCard';
 import StatusBadge from '../components/ui/StatusBadge';
+
+const DEPARTMENTS = [
+  'Computer Science',
+  'Electronics Engineering',
+  'Electrical Engineering',
+  'Mechanical Engineering',
+  'Civil Engineering',
+  'Information Technology',
+  'Business Administration',
+  'Other'
+];
 
 const AdminDashboard = () => {
   const { user } = useAuth();
@@ -19,7 +29,7 @@ const AdminDashboard = () => {
   const [stats, setStats] = useState({});
   const [projects, setProjects] = useState([]);
   const [users, setUsers] = useState([]);
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState('projects');
   const [showUserModal, setShowUserModal] = useState(false);
   const [editUser, setEditUser] = useState(null);
   const [userToDelete, setUserToDelete] = useState(null);
@@ -42,7 +52,11 @@ const AdminDashboard = () => {
   // Add the newly filtered projects logic here!
   const filteredProjects = projects.filter(project => {
     if (statusFilter === 'All') return true;
-    return project.adminStatus.toLowerCase() === statusFilter.toLowerCase();
+    const filterLower = statusFilter.toLowerCase();
+    if (['pending', 'approved', 'rejected'].includes(filterLower)) {
+      return project.adminStatus.toLowerCase() === filterLower;
+    }
+    return project.status.toLowerCase() === filterLower;
   });
 
   // Filter users logic
@@ -184,8 +198,8 @@ const AdminDashboard = () => {
             onClick={() => { setActiveTab('users'); setUserRoleFilter('student'); }} 
             icon={FiUsers} variant="primary" value={stats.totalStudents} label="Total Students" />
           <StatsCard 
-            onClick={() => { setActiveTab('users'); setUserRoleFilter('teacher'); }} 
-            icon={FiUsers} variant="success" value={stats.totalTeachers} label="Total Teachers" />
+            onClick={() => { setActiveTab('users'); setUserRoleFilter('faculty'); }} 
+            icon={FiUsers} variant="success" value={stats.totalFaculty} label="Total Faculty" />
           <StatsCard 
             onClick={() => { setActiveTab('projects'); setStatusFilter('All'); }} 
             icon={FiFolder} variant="primary" value={stats.totalProjects} label="Total Projects" />
@@ -228,25 +242,27 @@ const AdminDashboard = () => {
           <div className="card-body">
             {activeTab === 'overview' && (
               <div className="stats-grid">
-                <StatsCard icon={FiCheckCircle} variant="success" value={stats.approvedProjects} label="Approved Projects" />
-                <StatsCard icon={FiFolder} variant="primary" value={stats.inProgressProjects} label="In Progress" />
-                <StatsCard icon={FiCheckCircle} variant="success" value={stats.completedProjects} label="Completed" />
+                <StatsCard onClick={() => { setActiveTab('projects'); setStatusFilter('approved'); }} icon={FiCheckCircle} variant="success" value={stats.approvedProjects} label="Approved Projects" />
+                <StatsCard onClick={() => { setActiveTab('projects'); setStatusFilter('in-progress'); }} icon={FiFolder} variant="primary" value={stats.inProgressProjects} label="In Progress" />
+                <StatsCard onClick={() => { setActiveTab('projects'); setStatusFilter('completed'); }} icon={FiCheckCircle} variant="success" value={stats.completedProjects} label="Completed" />
               </div>
             )}
 
             {activeTab === 'projects' && (
               <>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '15px' }}>
-                  <select 
-                    className="form-select" 
-                    style={{ width: '200px' }} 
-                    value={statusFilter} 
+                  <select
+                    className="form-select"
+                    style={{ width: '200px' }}
+                    value={statusFilter}
                     onChange={(e) => setStatusFilter(e.target.value)}
                   >
                     <option value="All">All Projects</option>
                     <option value="pending">Pending Approval</option>
                     <option value="approved">Approved</option>
                     <option value="rejected">Rejected</option>
+                    <option value="in-progress">In Progress</option>
+                    <option value="completed">Completed</option>
                   </select>
                 </div>
                 <div className="table-container">
@@ -341,7 +357,7 @@ const AdminDashboard = () => {
                   >
                     <option value="All">All Users</option>
                     <option value="student">Students Only</option>
-                    <option value="teacher">Teachers Only</option>
+                    <option value="faculty">Faculty Only</option>
                     <option value="admin">Admins Only</option>
                   </select>
                 </div>
@@ -462,21 +478,27 @@ const AdminDashboard = () => {
                       required
                     >
                       <option value="student">Student</option>
-                      <option value="teacher">Teacher</option>
+                      <option value="faculty">Faculty</option>
                       <option value="admin">Admin</option>
                     </select>
                   </div>
 
-                  {(userForm.role === 'student' || userForm.role === 'teacher') && (
+                  {(userForm.role === 'student' || userForm.role === 'faculty') && (
                     <div className="form-group">
                       <label className="form-label">Department *</label>
-                      <input
-                        type="text"
-                        className="form-input"
+                      <select
+                        className="form-select"
                         value={userForm.department}
                         onChange={(e) => setUserForm({ ...userForm, department: e.target.value })}
                         required
-                      />
+                      >
+                        <option value="">Select Department</option>
+                        {DEPARTMENTS.map((dept) => (
+                          <option key={dept} value={dept}>
+                            {dept}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                   )}
 
@@ -493,7 +515,7 @@ const AdminDashboard = () => {
                     </div>
                   )}
 
-                  {userForm.role === 'teacher' && (
+                  {userForm.role === 'faculty' && (
                     <div className="form-group">
                       <label className="form-label">Employee ID *</label>
                       <input

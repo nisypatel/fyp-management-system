@@ -1,4 +1,4 @@
-// Purpose: Teacher dashboard for assigned projects and supervision requests.
+// Purpose: Faculty dashboard for assigned projects and supervision requests.
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -13,7 +13,7 @@ import StatsCard from '../components/ui/StatsCard';
 import StatusBadge from '../components/ui/StatusBadge';
 import EmptyState from '../components/ui/EmptyState';
 
-const TeacherDashboard = () => {
+const FacultyDashboard = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [stats, setStats] = useState({});
@@ -31,7 +31,7 @@ const TeacherDashboard = () => {
     return project.status.toLowerCase() === filterLower;
   });
 
-  usePageTitle('Teacher Dashboard | FYP Management');
+  usePageTitle('Faculty Dashboard | FYP Management');
 
   useEffect(() => {
     fetchDashboardData();
@@ -71,7 +71,7 @@ const TeacherDashboard = () => {
     <>
       <Navbar />
       <div className="dashboard-container">
-        <DashboardHeader title={`Welcome, ${user?.name || 'Teacher'}!`} subtitle="Teacher Dashboard" />
+        <DashboardHeader title={`Welcome, ${user?.name || 'Faculty'}!`} subtitle="Faculty Dashboard" />
 
         {/* Stats Cards */}
         <div className="stats-grid">
@@ -247,4 +247,4 @@ const TeacherDashboard = () => {
   );
 };
 
-export default TeacherDashboard;
+export default FacultyDashboard;

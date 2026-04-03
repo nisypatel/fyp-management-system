@@ -18,7 +18,8 @@ const StudentDashboard = () => {
   const navigate = useNavigate();
   const [stats, setStats] = useState({});
   const [projects, setProjects] = useState([]);
-  const [teachers, setTeachers] = useState([]);
+  const [teamInvites, setTeamInvites] = useState([]);
+  const [faculty, setTeachers] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
@@ -27,9 +28,11 @@ const StudentDashboard = () => {
     category: 'Web Development',
     technologies: '',
     projectType: 'Individual Project',
-    teamMembers: '',
+    teamMembers: [],
     proposalFile: null
   });
+
+  const [emailInput, setEmailInput] = useState('');
 
   const [statusFilter, setStatusFilter] = useState('All');
   
@@ -54,20 +57,38 @@ const StudentDashboard = () => {
 
   const fetchDashboardData = async () => {
     try {
-      const [dashboardStats, allProjects, allTeachers] = await Promise.all([
+      const [dashboardStats, allProjects, allTeachers, pendingInvites] = await Promise.all([
         userService.getDashboardStats(),
         projectService.getProjects(),
-        userService.getTeachers()
+        userService.getFaculty(),
+        projectService.getTeamInvites()
       ]);
       setStats(dashboardStats);
       setProjects(allProjects);
       setTeachers(allTeachers);
+      setTeamInvites(pendingInvites);
     } catch (error) {
       // During logout, protected APIs return 401; avoid unnecessary red toasts.
       if (error.response && error.response.status !== 401) {
         toast.error('Error loading dashboard data');
       }
     }
+  };
+
+  const handleAddMember = (e) => {
+    e.preventDefault();
+    const email = emailInput.trim();
+    if (email && !formData.teamMembers.includes(email)) {
+      setFormData({ ...formData, teamMembers: [...formData.teamMembers, email] });
+      setEmailInput('');
+    }
+  };
+
+  const handleRemoveMember = (idx) => {
+    setFormData({
+      ...formData,
+      teamMembers: formData.teamMembers.filter((_, i) => i !== idx)
+    });
   };
 
   const handleInputChange = (e) => {
@@ -95,9 +116,8 @@ const StudentDashboard = () => {
       data.append('category', formData.category);
       data.append('technologies', JSON.stringify(formData.technologies.split(',').map(t => t.trim())));
       
-      if (formData.projectType === 'Team Project' && formData.teamMembers) {
-        const emailList = formData.teamMembers.split(',').map(email => email.trim()).filter(email => email && email !== "");
-        data.append('teamMembers', JSON.stringify(emailList));
+      if (formData.projectType === 'Team Project' && formData.teamMembers.length > 0) {
+        data.append('teamMembers', JSON.stringify(formData.teamMembers));
       }
       
       if (formData.proposalFile) {
@@ -114,9 +134,10 @@ const StudentDashboard = () => {
         category: 'Web Development',
         technologies: '',
         projectType: 'Individual Project',
-        teamMembers: '',
+        teamMembers: [],
         proposalFile: null
       });
+      setEmailInput('');
       fetchDashboardData();
     } catch (error) {
       toast.error(error.response?.data?.message || 'Error submitting project');
@@ -131,6 +152,16 @@ const StudentDashboard = () => {
       fetchDashboardData();
     } catch (error) {
       toast.error(error.response?.data?.message || 'Error requesting supervisor');
+    }
+  };
+
+  const handleTeamInviteResponse = async (projectId, responseStatus) => {
+    try {
+      await projectService.respondToTeamInvite(projectId, responseStatus);
+      toast.success(`Invitation ${responseStatus} successfully`);
+      fetchDashboardData();
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to update invitation');
     }
   };
 
@@ -159,6 +190,55 @@ const StudentDashboard = () => {
             onClick={() => setStatusFilter('completed')} 
             icon={FiCheckCircle} variant="success" value={stats.completed} label="Completed" />
         </div>
+
+        {teamInvites.length > 0 && (
+          <div className="card" style={{ marginBottom: '1.25rem' }}>
+            <div className="card-header">
+              <h2 className="card-title">Team Invitations ({teamInvites.length})</h2>
+            </div>
+            <div className="card-body">
+              <div className="table-container">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Project</th>
+                      <th>Invited By</th>
+                      <th>Status</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {teamInvites.map((invite) => (
+                      <tr key={invite.projectId}>
+                        <td>{invite.projectTitle}</td>
+                        <td>{invite.invitedBy?.name || 'Student'}</td>
+                        <td>
+                          <StatusBadge status="pending" />
+                        </td>
+                        <td>
+                          <div className="flex gap-1" style={{ flexWrap: 'nowrap' }}>
+                            <button
+                              className="btn btn-sm btn-success"
+                              onClick={() => handleTeamInviteResponse(invite.projectId, 'accepted')}
+                            >
+                              Accept
+                            </button>
+                            <button
+                              className="btn btn-sm btn-danger"
+                              onClick={() => handleTeamInviteResponse(invite.projectId, 'rejected')}
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Projects List */}
         <div className="card">
@@ -209,18 +289,22 @@ const StudentDashboard = () => {
                               <StatusBadge status={project.supervisorStatus} />
                             </>
                           ) : (
-                            <select
-                              className="form-select"
-                              onChange={(e) => handleRequestSupervisor(project._id, e.target.value)}
-                              defaultValue=""
-                            >
-                              <option value="" disabled>Select Supervisor</option>
-                              {teachers.map(teacher => (
-                                <option key={teacher._id} value={teacher._id}>
-                                  {teacher.name} ({teacher.department})
-                                </option>
-                              ))}
-                            </select>
+                            project.student?._id === user?._id ? (
+                              <select
+                                className="form-select"
+                                onChange={(e) => handleRequestSupervisor(project._id, e.target.value)}
+                                defaultValue=""
+                              >
+                                <option value="" disabled>Select Supervisor</option>
+                                {faculty.map(faculty => (
+                                  <option key={faculty._id} value={faculty._id}>
+                                    {faculty.name} ({faculty.department})
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <small>Project owner will request supervisor</small>
+                            )
                           )}
                         </td>
                         <td>
@@ -354,18 +438,46 @@ const StudentDashboard = () => {
                       border: '1px solid #e2e8f0', 
                       borderRadius: '6px'
                     }}>
-                      <label className="form-label" style={{ color: '#4f46e5' }}>Team Members Email(s)</label>
+                      <label className="form-label" style={{ color: '#4f46e5' }}>Team Members</label>
                       <p style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '0.5rem' }}>
-                         Enter registered team member emails (comma separated). Example: test1@gmail.com, test2@gmail.com
+                         Add registered student emails. They will receive a join request and can accept or reject.
                       </p>
-                      <input
-                        type="text"
-                        name="teamMembers"
-                        className="form-input"
-                        placeholder="example1@email.com, example2@email.com"
-                        value={formData.teamMembers}
-                        onChange={handleInputChange}
-                      />
+                      <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+                        <input
+                          type="email"
+                          className="form-input"
+                          style={{ marginBottom: 0 }}
+                          placeholder="example@student.college.edu"    
+                          value={emailInput}
+                          onChange={(e) => setEmailInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleAddMember(e);
+                            }
+                          }}
+                        />
+                        <button type="button" onClick={handleAddMember} className="btn btn-primary" style={{ padding: '0.5rem 1rem' }}>
+                          Add
+                        </button>
+                      </div>
+                      
+                      {formData.teamMembers.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '10px' }}>
+                          {formData.teamMembers.map((email, idx) => (
+                            <div key={idx} style={{
+                              display: 'flex', alignItems: 'center', background: '#e0e7ff', color: '#3730a3',
+                              padding: '6px 12px', borderRadius: '16px', fontSize: '0.85rem', fontWeight: 500
+                            }}>
+                              <span>{email}</span>
+                              <button type="button" onClick={() => handleRemoveMember(idx)} style={{
+                                background: 'transparent', border: 'none', color: '#3730a3', marginLeft: '8px',
+                                cursor: 'pointer', fontWeight: 'bold', fontSize: '1.2rem', lineHeight: 1
+                              }}>&times;</button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
 

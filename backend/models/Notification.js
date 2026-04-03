@@ -22,6 +22,15 @@ const notificationSchema = new mongoose.Schema({
       'feedback_received',
       'document_uploaded',
       'milestone_completed',
+      'phase_submitted',
+      'phase_approved',
+      'phase_rejected',
+      'code_review_submitted',
+      'code_review_approved',
+      'code_review_rejected',
+      'team_invited',
+      'team_invite_accepted',
+      'team_invite_rejected',
       'general'
     ],
     required: true

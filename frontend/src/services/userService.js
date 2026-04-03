@@ -7,9 +7,9 @@ export const userService = {
     return response.data.stats;
   },
 
-  async getTeachers() {
-    const response = await apiClient.get('/users/teachers');
-    return response.data.teachers;
+  async getFaculty() {
+    const response = await apiClient.get('/users/faculty');
+    return response.data.faculty;
   },
 
   async getUsers() {

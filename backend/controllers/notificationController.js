@@ -122,3 +122,22 @@ exports.deleteNotification = async (req, res) => {
     });
   }
 };
+
+// @desc    Delete all notifications for current user
+// @route   DELETE /api/notifications
+// @access  Private
+exports.deleteAllNotifications = async (req, res) => {
+  try {
+    await Notification.deleteMany({ recipient: req.user.id });
+
+    res.status(200).json({
+      success: true,
+      message: 'All notifications deleted'
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+};

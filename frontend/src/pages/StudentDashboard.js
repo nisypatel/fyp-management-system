@@ -26,8 +26,24 @@ const StudentDashboard = () => {
     description: '',
     category: 'Web Development',
     technologies: '',
+    projectType: 'Individual Project',
     teamMembers: '',
     proposalFile: null
+  });
+
+  const [statusFilter, setStatusFilter] = useState('All');
+  
+  // Add filter logic
+  const filteredProjects = projects.filter(project => {
+    if (statusFilter === 'All') return true;
+    
+    const filterLower = statusFilter.toLowerCase();
+    // Check against adminStatus first
+    if (['pending', 'approved', 'rejected'].includes(filterLower)) {
+      return project.adminStatus.toLowerCase() === filterLower && project.status !== 'completed';
+    }
+    // Check against general status
+    return project.status.toLowerCase() === filterLower;
   });
 
   usePageTitle('Student Dashboard | FYP Management');
@@ -79,12 +95,9 @@ const StudentDashboard = () => {
       data.append('category', formData.category);
       data.append('technologies', JSON.stringify(formData.technologies.split(',').map(t => t.trim())));
       
-      if (formData.teamMembers) {
-        const members = formData.teamMembers.split('\n').map(m => {
-          const [name, enrollmentNumber] = m.split(',').map(s => s.trim());
-          return { name, enrollmentNumber };
-        });
-        data.append('teamMembers', JSON.stringify(members));
+      if (formData.projectType === 'Team Project' && formData.teamMembers) {
+        const emailList = formData.teamMembers.split(',').map(email => email.trim()).filter(email => email && email !== "");
+        data.append('teamMembers', JSON.stringify(emailList));
       }
       
       if (formData.proposalFile) {
@@ -100,6 +113,7 @@ const StudentDashboard = () => {
         description: '',
         category: 'Web Development',
         technologies: '',
+        projectType: 'Individual Project',
         teamMembers: '',
         proposalFile: null
       });
@@ -132,20 +146,43 @@ const StudentDashboard = () => {
 
         {/* Stats Cards */}
         <div className="stats-grid">
-          <StatsCard icon={FiFolder} variant="primary" value={stats.myProjects} label="My Projects" />
-          <StatsCard icon={FiClock} variant="warning" value={stats.pending} label="Pending Approval" />
-          <StatsCard icon={FiClock} variant="primary" value={stats.inProgress} label="In Progress" />
-          <StatsCard icon={FiCheckCircle} variant="success" value={stats.completed} label="Completed" />
+          <StatsCard 
+            onClick={() => setStatusFilter('All')} 
+            icon={FiFolder} variant="primary" value={stats.myProjects} label="My Projects" />
+          <StatsCard 
+            onClick={() => setStatusFilter('pending')} 
+            icon={FiClock} variant="warning" value={stats.pending} label="Pending Approval" />
+          <StatsCard 
+            onClick={() => setStatusFilter('in-progress')} 
+            icon={FiClock} variant="primary" value={stats.inProgress} label="In Progress" />
+          <StatsCard 
+            onClick={() => setStatusFilter('completed')} 
+            icon={FiCheckCircle} variant="success" value={stats.completed} label="Completed" />
         </div>
 
         {/* Projects List */}
         <div className="card">
           <div className="card-header">
             <h2 className="card-title">My Projects</h2>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <select 
+                className="form-select" 
+                style={{ width: '180px' }} 
+                value={statusFilter} 
+                onChange={(e) => setStatusFilter(e.target.value)}
+              >
+                <option value="All">All Statuses</option>
+                <option value="pending">Pending Approval</option>
+                <option value="approved">Approved</option>
+                <option value="rejected">Rejected</option>
+                <option value="in-progress">In Progress</option>
+                <option value="completed">Completed</option>
+              </select>
+            </div>
           </div>
           <div className="card-body">
-            {projects.length === 0 ? (
-              <EmptyState icon={FiFolder} message="No projects yet. Submit your first project proposal!" />
+            {filteredProjects.length === 0 ? (
+              <EmptyState icon={FiFolder} message="No projects found matching your criteria. Submit your first project proposal!" />
             ) : (
               <div className="table-container">
                 <table>
@@ -160,7 +197,7 @@ const StudentDashboard = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {projects.map(project => (
+                    {filteredProjects.map(project => (
                       <tr key={project._id}>
                         <td>{project.title}</td>
                         <td>{project.category}</td>
@@ -284,16 +321,53 @@ const StudentDashboard = () => {
                     />
                   </div>
 
-                  <div className="form-group">
-                    <label className="form-label">Team Members (optional)</label>
-                    <textarea
-                      name="teamMembers"
-                      className="form-textarea"
-                      placeholder="Format: Name, Enrollment Number (one per line)"
-                      value={formData.teamMembers}
-                      onChange={handleInputChange}
-                    />
+                  <div className="form-group" style={{ marginTop: '1rem', marginBottom: '1rem' }}>
+                    <label className="form-label" style={{ display: 'block', marginBottom: '0.5rem' }}>Project Type *</label>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                        <input
+                          type="radio"
+                          name="projectType"
+                          value="Individual Project"
+                          checked={formData.projectType === 'Individual Project'}
+                          onChange={handleInputChange}
+                        />
+                        Individual Project
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                        <input
+                          type="radio"
+                          name="projectType"
+                          value="Team Project"
+                          checked={formData.projectType === 'Team Project'}
+                          onChange={handleInputChange}
+                        />
+                        Team Project
+                      </label>
+                    </div>
                   </div>
+
+                  {formData.projectType === 'Team Project' && (
+                    <div className="form-group" style={{ 
+                      padding: '12px', 
+                      background: '#f8fafc', 
+                      border: '1px solid #e2e8f0', 
+                      borderRadius: '6px'
+                    }}>
+                      <label className="form-label" style={{ color: '#4f46e5' }}>Team Members Email(s)</label>
+                      <p style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '0.5rem' }}>
+                         Enter registered team member emails (comma separated). Example: test1@gmail.com, test2@gmail.com
+                      </p>
+                      <input
+                        type="text"
+                        name="teamMembers"
+                        className="form-input"
+                        placeholder="example1@email.com, example2@email.com"
+                        value={formData.teamMembers}
+                        onChange={handleInputChange}
+                      />
+                    </div>
+                  )}
 
                   <div className="form-group">
                     <label className="form-label">Proposal Document (optional)</label>

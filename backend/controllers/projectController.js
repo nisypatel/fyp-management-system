@@ -41,9 +41,33 @@ exports.createProject = async (req, res) => {
       description,
       category,
       technologies: technologies ? JSON.parse(technologies) : [],
-      teamMembers: teamMembers ? JSON.parse(teamMembers) : [],
+      teamMembers: [],
       student: req.user.id
     };
+
+    // Handle Team Members Verification Flow
+    if (teamMembers) {
+      const memberEmails = JSON.parse(teamMembers);
+      // Process emails
+      if (Array.isArray(memberEmails) && memberEmails.length > 0) {
+        for (let email of memberEmails) {
+          if (!email || email.trim() === '') continue;
+          
+          const memberUser = await User.findOne({ email: email.trim().toLowerCase(), role: 'student' });
+          if (!memberUser) {
+            return res.status(404).json({
+              success: false,
+              message: `Student with email '${email}' not found. Ensure they are registered first.`
+            });
+          }
+          
+          projectData.teamMembers.push({ 
+            name: memberUser.name, 
+            enrollmentNumber: memberUser.enrollmentNumber || memberUser.email 
+          });
+        }
+      }
+    }
 
     // Handle file upload if present
     if (req.file) {

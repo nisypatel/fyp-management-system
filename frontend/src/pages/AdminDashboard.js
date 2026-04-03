@@ -36,6 +36,21 @@ const AdminDashboard = () => {
     phone: ''
   });
 
+  const [statusFilter, setStatusFilter] = useState('All');
+  const [userRoleFilter, setUserRoleFilter] = useState('All');
+
+  // Add the newly filtered projects logic here!
+  const filteredProjects = projects.filter(project => {
+    if (statusFilter === 'All') return true;
+    return project.adminStatus.toLowerCase() === statusFilter.toLowerCase();
+  });
+
+  // Filter users logic
+  const filteredUsers = users.filter(user => {
+    if (userRoleFilter === 'All') return true;
+    return user.role.toLowerCase() === userRoleFilter.toLowerCase();
+  });
+
   usePageTitle('Admin Dashboard | FYP Management');
 
   useEffect(() => {
@@ -165,10 +180,18 @@ const AdminDashboard = () => {
 
         {/* Stats Cards */}
         <div className="stats-grid">
-          <StatsCard icon={FiUsers} variant="primary" value={stats.totalStudents} label="Total Students" />
-          <StatsCard icon={FiUsers} variant="success" value={stats.totalTeachers} label="Total Teachers" />
-          <StatsCard icon={FiFolder} variant="primary" value={stats.totalProjects} label="Total Projects" />
-          <StatsCard icon={FiClock} variant="warning" value={stats.pendingProjects} label="Pending Approval" />
+          <StatsCard 
+            onClick={() => { setActiveTab('users'); setUserRoleFilter('student'); }} 
+            icon={FiUsers} variant="primary" value={stats.totalStudents} label="Total Students" />
+          <StatsCard 
+            onClick={() => { setActiveTab('users'); setUserRoleFilter('teacher'); }} 
+            icon={FiUsers} variant="success" value={stats.totalTeachers} label="Total Teachers" />
+          <StatsCard 
+            onClick={() => { setActiveTab('projects'); setStatusFilter('All'); }} 
+            icon={FiFolder} variant="primary" value={stats.totalProjects} label="Total Projects" />
+          <StatsCard 
+            onClick={() => { setActiveTab('projects'); setStatusFilter('pending'); }} 
+            icon={FiClock} variant="warning" value={stats.pendingProjects} label="Pending Approval" />
         </div>
 
         {/* Tabs */}
@@ -190,7 +213,7 @@ const AdminDashboard = () => {
                 </button>
                 <button
                   className={`btn ${activeTab === 'users' ? 'btn-primary' : 'btn-outline'}`}
-                  onClick={() => setActiveTab('users')}
+                  onClick={() => { setActiveTab('users'); setUserRoleFilter('All'); }}
                 >
                   Users
                 </button>
@@ -212,135 +235,172 @@ const AdminDashboard = () => {
             )}
 
             {activeTab === 'projects' && (
-              <div className="table-container">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Title</th>
-                      <th>Student</th>
-                      <th>Supervisor</th>
-                      <th>Category</th>
-                      <th>Status</th>
-                      <th>Admin Status</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {projects.map(project => (
-                      <tr key={project._id}>
-                        <td>{project.title}</td>
-                        <td>
-                          {project.student.name}
-                          <br />
-                          <small>{project.student.enrollmentNumber}</small>
-                        </td>
-                        <td>
-                          {project.supervisor ? (
-                            <>
-                              {project.supervisor.name}
-                              <br />
-                              <StatusBadge status={project.supervisorStatus} />
-                            </>
-                          ) : (
-                            <span className="badge badge-secondary">No Supervisor</span>
-                          )}
-                        </td>
-                        <td>{project.category}</td>
-                        <td>
-                          <StatusBadge status={project.status} />
-                        </td>
-                        <td>
-                          <StatusBadge status={project.adminStatus} />
-                        </td>
-                        <td>
-                          <div className="flex gap-1">
-                            {project.adminStatus === 'pending' && (
-                              <>
-                                <button
-                                  className="btn btn-sm btn-success"
-                                  onClick={() => handleProjectApproval(project._id, 'approved')}
-                                  disabled={loading}
-                                >
-                                  Approve
-                                </button>
-                                <button
-                                  className="btn btn-sm btn-danger"
-                                  onClick={() => handleProjectApproval(project._id, 'rejected')}
-                                  disabled={loading}
-                                >
-                                  Reject
-                                </button>
-                              </>
-                            )}
-                            <button
-                              className="btn btn-sm btn-outline"
-                              onClick={() => navigate(`/project/${project._id}`)}
-                            >
-                              View
-                            </button>
-                          </div>
-                        </td>
+              <>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '15px' }}>
+                  <select 
+                    className="form-select" 
+                    style={{ width: '200px' }} 
+                    value={statusFilter} 
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                  >
+                    <option value="All">All Projects</option>
+                    <option value="pending">Pending Approval</option>
+                    <option value="approved">Approved</option>
+                    <option value="rejected">Rejected</option>
+                  </select>
+                </div>
+                <div className="table-container">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Title</th>
+                        <th>Student</th>
+                        <th>Supervisor</th>
+                        <th>Category</th>
+                        <th>Status</th>
+                        <th>Admin Status</th>
+                        <th>Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {filteredProjects.length === 0 ? (
+                        <tr><td colSpan="7" style={{textAlign: "center", padding: "2rem"}}>No projects found.</td></tr>
+                      ) : filteredProjects.map(project => (
+                        <tr key={project._id}>
+                          <td>{project.title}</td>
+                          <td>
+                            {project.student.name}
+                            <br />
+                            <small>{project.student.enrollmentNumber}</small>
+                          </td>
+                          <td>
+                            {project.supervisor ? (
+                              <>
+                                {project.supervisor.name}
+                                <br />
+                                <StatusBadge status={project.supervisorStatus} />
+                              </>
+                            ) : (
+                              <span className="badge badge-secondary">No Supervisor</span>
+                            )}
+                          </td>
+                          <td>{project.category}</td>
+                          <td>
+                            <StatusBadge status={project.status} />
+                          </td>
+                          <td>
+                            <StatusBadge status={project.adminStatus} />
+                          </td>
+                          <td>
+                            <div className="flex gap-1" style={{ flexWrap: 'nowrap' }}>
+                              {project.adminStatus === 'pending' && (
+                                <>
+                                  <button
+                                    style={{ whiteSpace: 'nowrap' }}
+                                    className="btn btn-sm btn-success"
+                                    onClick={() => handleProjectApproval(project._id, 'approved')}
+                                    disabled={loading}
+                                  >
+                                    Approve
+                                  </button>
+                                  <button
+                                    style={{ whiteSpace: 'nowrap' }}
+                                    className="btn btn-sm btn-danger"
+                                    onClick={() => handleProjectApproval(project._id, 'rejected')}
+                                    disabled={loading}
+                                  >
+                                    Reject
+                                  </button>
+                                </>
+                              )}
+                              <button
+                                style={{ whiteSpace: 'nowrap' }}
+                                className="btn btn-sm btn-outline"
+                                onClick={() => navigate(`/project/${project._id}`)}
+                              >
+                                View
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
 
             {activeTab === 'users' && (
-              <div className="table-container">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Name</th>
-                      <th>Email</th>
-                      <th>Role</th>
-                      <th>Department</th>
-                      <th>ID Number</th>
-                      <th>Status</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {users.map(user => (
-                      <tr key={user._id}>
-                        <td>{user.name}</td>
-                        <td>{user.email}</td>
-                        <td>
-                          <span className="badge badge-primary">
-                            {user.role}
-                          </span>
-                        </td>
-                        <td>{user.department}</td>
-                        <td>
-                          {user.enrollmentNumber || user.employeeId || '-'}
-                        </td>
-                        <td>
-                          <span className={`badge ${user.isActive ? 'badge-success' : 'badge-danger'}`}>
-                            {user.isActive ? 'Active' : 'Inactive'}
-                          </span>
-                        </td>
-                        <td>
-                          <div className="flex gap-1">
-                            <button
-                              className="btn btn-sm btn-outline"
-                              onClick={() => handleEditUser(user)}
-                            >
-                              <FiEdit />
-                            </button>
-                            <button
-                              className="btn btn-sm btn-danger"
-                              onClick={() => handleDeleteUser(user)}
-                            >
-                              <FiTrash />
-                            </button>
-                          </div>
-                        </td>
+              <>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '15px' }}>
+                  <select 
+                    className="form-select" 
+                    style={{ width: '200px' }} 
+                    value={userRoleFilter} 
+                    onChange={(e) => setUserRoleFilter(e.target.value)}
+                  >
+                    <option value="All">All Users</option>
+                    <option value="student">Students Only</option>
+                    <option value="teacher">Teachers Only</option>
+                    <option value="admin">Admins Only</option>
+                  </select>
+                </div>
+                <div className="table-container">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Role</th>
+                        <th>Department</th>
+                        <th>ID Number</th>
+                        <th>Status</th>
+                        <th>Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {filteredUsers.length === 0 ? (
+                        <tr><td colSpan="7" style={{textAlign: "center", padding: "2rem"}}>No users found for this role.</td></tr>
+                      ) : filteredUsers.map(user => (
+                        <tr key={user._id}>
+                          <td>{user.name}</td>
+                          <td>{user.email}</td>
+                          <td>
+                            <span className="badge badge-primary">
+                              {user.role}
+                            </span>
+                          </td>
+                          <td>{user.department}</td>
+                          <td>
+                            {user.enrollmentNumber || user.employeeId || '-'}
+                          </td>
+                          <td>
+                            <span className={`badge ${user.isActive ? 'badge-success' : 'badge-danger'}`}>
+                              {user.isActive ? 'Active' : 'Inactive'}
+                            </span>
+                          </td>
+                          <td>
+                            <div className="flex gap-1" style={{ flexWrap: 'nowrap' }}>
+                              <button
+                                className="btn btn-sm btn-outline"
+                                onClick={() => handleEditUser(user)}
+                              >
+                                <FiEdit />
+                              </button>
+                              <button
+                                className="btn btn-sm btn-danger"
+                                onClick={() => handleDeleteUser(user)}
+                              >
+                                <FiTrash />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </div>
         </div>

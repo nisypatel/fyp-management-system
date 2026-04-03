@@ -20,7 +20,16 @@ const TeacherDashboard = () => {
   const [projects, setProjects] = useState([]);
   const [requests, setRequests] = useState([]);
   const [activeTab, setActiveTab] = useState('assigned');
+  const [statusFilter, setStatusFilter] = useState('All');
   const [loading, setLoading] = useState(false);
+
+  // Add filter logic for assigned projects
+  const filteredProjects = projects.filter(project => {
+    if (statusFilter === 'All') return true;
+    
+    const filterLower = statusFilter.toLowerCase();
+    return project.status.toLowerCase() === filterLower;
+  });
 
   usePageTitle('Teacher Dashboard | FYP Management');
 
@@ -66,10 +75,18 @@ const TeacherDashboard = () => {
 
         {/* Stats Cards */}
         <div className="stats-grid">
-          <StatsCard icon={FiUsers} variant="primary" value={stats.totalAssigned} label="Assigned Projects" />
-          <StatsCard icon={FiClock} variant="warning" value={stats.pendingRequests} label="Pending Requests" />
-          <StatsCard icon={FiFolder} variant="primary" value={stats.inProgress} label="In Progress" />
-          <StatsCard icon={FiCheckCircle} variant="success" value={stats.completed} label="Completed" />
+          <StatsCard 
+            onClick={() => { setActiveTab('assigned'); setStatusFilter('All'); }} 
+            icon={FiUsers} variant="primary" value={stats.totalAssigned} label="Assigned Projects" />
+          <StatsCard 
+            onClick={() => setActiveTab('requests')} 
+            icon={FiClock} variant="warning" value={stats.pendingRequests} label="Pending Requests" />
+          <StatsCard 
+            onClick={() => { setActiveTab('assigned'); setStatusFilter('in-progress'); }} 
+            icon={FiFolder} variant="primary" value={stats.inProgress} label="In Progress" />
+          <StatsCard 
+            onClick={() => { setActiveTab('assigned'); setStatusFilter('completed'); }} 
+            icon={FiCheckCircle} variant="success" value={stats.completed} label="Completed" />
         </div>
 
         {/* Tabs */}
@@ -93,8 +110,21 @@ const TeacherDashboard = () => {
           <div className="card-body">
             {activeTab === 'assigned' && (
               <>
-                {projects.length === 0 ? (
-                  <EmptyState icon={FiFolder} message="No assigned projects yet." />
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '15px' }}>
+                  <select 
+                    className="form-select" 
+                    style={{ width: '200px' }} 
+                    value={statusFilter} 
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                  >
+                    <option value="All">All Projects</option>
+                    <option value="proposal">Proposals</option>
+                    <option value="in-progress">In Progress</option>
+                    <option value="completed">Completed</option>
+                  </select>
+                </div>
+                {filteredProjects.length === 0 ? (
+                  <EmptyState icon={FiFolder} message="No assigned projects found for this filter." />
                 ) : (
                   <div className="table-container">
                     <table>
@@ -109,7 +139,7 @@ const TeacherDashboard = () => {
                         </tr>
                       </thead>
                       <tbody>
-                        {projects.map(project => (
+                        {filteredProjects.map(project => (
                           <tr key={project._id}>
                             <td>{project.title}</td>
                             <td>

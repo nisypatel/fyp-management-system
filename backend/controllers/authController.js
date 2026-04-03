@@ -99,9 +99,12 @@ exports.register = async (req, res) => {
       name,
       email,
       password,
-      role: role || 'student',
-      phone
+      role: role || 'student'
     };
+
+    if (phone) {
+      userData.phone = phone;
+    }
 
     if (role === 'student' || !role) {
       userData.department = department;
@@ -115,10 +118,33 @@ exports.register = async (req, res) => {
 
     // Send welcome email
     try {
+      const emailHtml = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
+          <div style="text-align: center; margin-bottom: 20px;">
+            <h2 style="color: #4F46E5; margin: 0;">FYP Management System</h2>
+          </div>
+          <div style="background-color: #f9f9f9; padding: 20px; border-radius: 8px;">
+            <h3 style="color: #333; margin-top: 0;">Welcome, ${user.name}!</h3>
+            <p style="color: #555; line-height: 1.6;">Your account has been successfully created.</p>
+            <p style="color: #555; line-height: 1.6;">You are registered as a <strong>${user.role.toUpperCase()}</strong>.</p>
+            <hr style="border: 0; border-top: 1px solid #ddd; margin: 20px 0;" />
+            <p style="color: #555; line-height: 1.6;">Log in now to start managing your Final Year Projects effectively and collaborating with your peers and supervisors.</p>
+            <div style="text-align: center; margin-top: 30px;">
+              <a href="${process.env.CLIENT_URL || 'http://localhost:3000'}/login" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold;">Login to Dashboard</a>
+            </div>
+          </div>
+          <div style="text-align: center; margin-top: 20px; font-size: 12px; color: #888;">
+            <p>If you didn't create this account, please ignore this email.</p>
+            <p>&copy; ${new Date().getFullYear()} FYP Management System</p>
+          </div>
+        </div>
+      `;
+
       await sendEmail({
         email: user.email,
-        subject: 'Welcome to FYP System',
-        message: `Hi ${user.name},\n\nWelcome to the FYP Management System! Your account has been successfully created as a ${user.role}.\n\nBest regards,\nFYP Team`
+        subject: 'Welcome to FYP Management System! 🎉',
+        message: `Hi ${user.name},\n\nWelcome to the FYP Management System! Your account has been successfully created as a ${user.role}.\n\nBest regards,\nFYP Team`,
+        html: emailHtml
       });
     } catch (err) {
       console.log('Error sending welcome email:', err.message);
@@ -303,16 +329,32 @@ exports.forgotPassword = async (req, res) => {
 
     // Create reset url
     // Use frontend URL, typically from environment config, default to localhost
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const frontendUrl = process.env.CLIENT_URL || 'http://localhost:3000';
     const resetUrl = `${frontendUrl}/reset-password/${resetToken}`;
 
     const message = `You are receiving this email because you (or someone else) has requested the reset of a password. Please make a PUT request to: \n\n ${resetUrl}`;
 
     try {
+      const resetHtml = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px; text-align: center;">
+          <h2 style="color: #4F46E5; margin-bottom: 20px;">Password Reset Request</h2>
+          <div style="background-color: #fce4e4; padding: 15px; border-radius: 6px; margin-bottom: 20px; display: inline-block;">
+            <p style="color: #333; margin: 0; font-size: 16px;">We received a request to reset your password.</p>
+          </div>
+          <p style="color: #555; line-height: 1.6; font-size: 15px; margin-bottom: 30px;">
+            Click the button below to set a new password. This link will expire in 10 minutes.
+          </p>
+          <a href="${resetUrl}" style="background-color: #E11D48; color: white; padding: 12px 30px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 16px;">Reset Password</a>
+          <hr style="border: 0; border-top: 1px solid #ddd; margin: 30px 0;" />
+          <p style="color: #888; font-size: 13px;">If you didn't request a password reset, you can safely ignore this email.</p>
+        </div>
+      `;
+
       await sendEmail({
         email: user.email,
-        subject: 'Password reset token',
-        message
+        subject: '🔒 Reset Your FYP Management Password',
+        message,
+        html: resetHtml
       });
 
       res.status(200).json({ success: true, message: 'Email sent' });

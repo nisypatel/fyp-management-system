@@ -22,6 +22,8 @@ const AdminDashboard = () => {
   const [activeTab, setActiveTab] = useState('overview');
   const [showUserModal, setShowUserModal] = useState(false);
   const [editUser, setEditUser] = useState(null);
+  const [userToDelete, setUserToDelete] = useState(null);
+  const [showUpdateConfirm, setShowUpdateConfirm] = useState(false);
   const [loading, setLoading] = useState(false);
   const [userForm, setUserForm] = useState({
     name: '',
@@ -75,35 +77,55 @@ const AdminDashboard = () => {
 
   const handleUserSubmit = async (e) => {
     e.preventDefault();
+    if (editUser) {
+      setShowUpdateConfirm(true);
+      return;
+    }
+    
     setLoading(true);
-
     try {
-      if (editUser) {
-        await userService.updateUser(editUser._id, userForm);
-        toast.success('User updated successfully!');
-      } else {
-        await userService.createUser(userForm);
-        toast.success('User created successfully!');
-      }
+      await userService.createUser(userForm);
+      toast.success('User created successfully!');
       setShowUserModal(false);
       resetUserForm();
       fetchDashboardData();
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Error saving user');
+      toast.error(error.response?.data?.message || 'Error creating user');
     }
     setLoading(false);
   };
 
-  const handleDeleteUser = async (userId) => {
-    if (!window.confirm('Are you sure you want to delete this user?')) return;
-
+  const confirmUpdateUser = async () => {
+    setLoading(true);
     try {
-      await userService.deleteUser(userId);
+      await userService.updateUser(editUser._id, userForm);
+      toast.success('User updated successfully!');
+      setShowUpdateConfirm(false);
+      setShowUserModal(false);
+      resetUserForm();
+      fetchDashboardData();
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Error updating user');
+    }
+    setLoading(false);
+  };
+
+  const handleDeleteUser = (user) => {
+    setUserToDelete(user);
+  };
+
+  const confirmDeleteUser = async () => {
+    if (!userToDelete) return;
+    setLoading(true);
+    try {
+      await userService.deleteUser(userToDelete._id);
       toast.success('User deleted successfully!');
+      setUserToDelete(null);
       fetchDashboardData();
     } catch (error) {
       toast.error(error.response?.data?.message || 'Error deleting user');
     }
+    setLoading(false);
   };
 
   const handleEditUser = (user) => {
@@ -152,7 +174,7 @@ const AdminDashboard = () => {
         {/* Tabs */}
         <div className="card">
           <div className="card-header">
-            <div className="flex-between">
+            <div className="flex-between" style={{ width: '100%' }}>
               <div className="flex gap-2">
                 <button
                   className={`btn ${activeTab === 'overview' ? 'btn-primary' : 'btn-outline'}`}
@@ -308,7 +330,7 @@ const AdminDashboard = () => {
                             </button>
                             <button
                               className="btn btn-sm btn-danger"
-                              onClick={() => handleDeleteUser(user._id)}
+                              onClick={() => handleDeleteUser(user)}
                             >
                               <FiTrash />
                             </button>
@@ -452,6 +474,52 @@ const AdminDashboard = () => {
                     </button>
                   </div>
                 </form>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Update Confirmation Modal UI */}
+        {showUpdateConfirm && (
+          <div className="modal-overlay" style={{ zIndex: 1050 }} onClick={() => setShowUpdateConfirm(false)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '400px' }}>
+              <div className="modal-header">
+                <h2 className="modal-title" style={{ color: '#eab308' }}>Confirm Edit</h2>
+                <button className="modal-close" onClick={() => setShowUpdateConfirm(false)}>×</button>
+              </div>
+              <div className="modal-body">
+                <p>Are you sure you want to apply these changes to <strong>{editUser?.name}</strong>?</p>
+                <div className="modal-footer" style={{ marginTop: '20px' }}>
+                  <button className="btn btn-secondary" onClick={() => setShowUpdateConfirm(false)}>
+                    Go Back
+                  </button>
+                  <button className="btn btn-primary" onClick={confirmUpdateUser} disabled={loading}>
+                    Yes, Update
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Delete Confirmation Modal UI */}
+        {userToDelete && (
+          <div className="modal-overlay" style={{ zIndex: 1050 }} onClick={() => setUserToDelete(null)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '400px' }}>
+              <div className="modal-header">
+                <h2 className="modal-title" style={{ color: '#ef4444' }}>Delete User!</h2>
+                <button className="modal-close" onClick={() => setUserToDelete(null)}>×</button>
+              </div>
+              <div className="modal-body">
+                <p>Delete <strong>{userToDelete?.name}</strong> forever? This action is not reversible.</p>
+                <div className="modal-footer" style={{ marginTop: '20px' }}>
+                  <button className="btn btn-secondary" onClick={() => setUserToDelete(null)}>
+                    Cancel
+                  </button>
+                  <button className="btn btn-danger" onClick={confirmDeleteUser} disabled={loading}>
+                    Confirm Delete
+                  </button>
+                </div>
               </div>
             </div>
           </div>

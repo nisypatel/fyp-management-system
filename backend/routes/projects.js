@@ -11,7 +11,9 @@ const {
   uploadDocument,
   updateProgress,
   getSupervisorRequests,
-  getPendingProjects
+  getPendingProjects,
+  submitPhase,
+  evaluatePhase
 } = require('../controllers/projectController');
 const { protect, authorize } = require('../middleware/auth');
 const { upload, handleMulterError } = require('../middleware/upload');
@@ -33,5 +35,9 @@ router.put('/:id/admin-approval', protect, authorize('admin'), adminApproval);
 router.post('/:id/feedback', protect, authorize('teacher', 'admin'), addFeedback);
 router.post('/:id/documents', protect, upload.single('document'), handleMulterError, uploadDocument);
 router.put('/:id/progress', protect, authorize('student', 'teacher'), updateProgress);
+
+// Phases routes
+router.put('/:id/phases/:phaseId/submit', protect, authorize('student'), upload.single('document'), handleMulterError, submitPhase);
+router.put('/:id/phases/:phaseId/evaluate', protect, authorize('teacher'), evaluatePhase);
 
 module.exports = router;

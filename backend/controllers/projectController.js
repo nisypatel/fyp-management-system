@@ -511,3 +511,113 @@ exports.getPendingProjects = async (req, res) => {
     });
   }
 };
+
+// @desc    Submit a project phase
+// @route   PUT /api/projects/:id/phases/:phaseId/submit
+// @access  Private (Student)
+exports.submitPhase = async (req, res) => {
+  try {
+    const project = await Project.findById(req.params.id);
+
+    if (!project) {
+      return res.status(404).json({ success: false, message: 'Project not found' });
+    }
+
+    if (project.student.toString() !== req.user.id) {
+      return res.status(403).json({ success: false, message: 'Not authorized' });
+    }
+
+    const phase = project.phases.id(req.params.phaseId);
+    if (!phase) {
+      return res.status(404).json({ success: false, message: 'Phase not found' });
+    }
+
+    const { link, comments } = req.body;
+    
+    // Initialize submission object if it doesn't exist
+    if (!phase.submission) phase.submission = {};
+
+    phase.submission.link = link;
+    phase.submission.comments = comments;
+    phase.submission.submittedAt = Date.now();
+    
+    if (req.file) {
+      phase.submission.fileUrl = req.file.path;
+      phase.submission.fileName = req.file.originalname;
+    }
+
+    phase.status = 'submitted';
+    await project.save();
+
+    // Notify Supervisor
+    if (project.supervisor) {
+      await createNotification(
+        project.supervisor,
+        req.user.id,
+        'phase_submitted',
+        'Phase Submitted for Review',
+        `${req.user.name} has submitted the ${phase.title} phase for review.`,
+        project._id
+      );
+    }
+
+    res.status(200).json({ success: true, project });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+// @desc    Evaluate (Approve/Reject) a project phase
+// @route   PUT /api/projects/:id/phases/:phaseId/evaluate
+// @access  Private (Teacher)
+exports.evaluatePhase = async (req, res) => {
+  try {
+    const project = await Project.findById(req.params.id);
+
+    if (!project) {
+      return res.status(404).json({ success: false, message: 'Project not found' });
+    }
+
+    if (!project.supervisor || project.supervisor.toString() !== req.user.id) {
+      return res.status(403).json({ success: false, message: 'Only the supervisor can evaluate' });
+    }
+
+    const phase = project.phases.id(req.params.phaseId);
+    if (!phase) {
+      return res.status(404).json({ success: false, message: 'Phase not found' });
+    }
+
+    const { status, feedback } = req.body; // status: 'approved' or 'rejected'
+
+    phase.status = status;
+    phase.feedback = feedback;
+    
+    if (status === 'approved') {
+      phase.approvedAt = Date.now();
+      
+      // Calculate overall progress based on approved phases
+      const approvedPhasesCount = project.phases.filter(p => p.status === 'approved').length;
+      project.progress = approvedPhasesCount * 20; // 5 phases = 20% each
+      
+      if (project.progress === 100) {
+        project.status = 'completed';
+      }
+    }
+
+    await project.save();
+
+    // Notify student
+    await createNotification(
+      project.student,
+      req.user.id,
+      `phase_${status}`,
+      `Phase ${status.charAt(0).toUpperCase() + status.slice(1)}`,
+      `Your supervisor has ${status} the ${phase.title} phase.`,
+      project._id
+    );
+
+    res.status(200).json({ success: true, project });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+};

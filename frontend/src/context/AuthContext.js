@@ -72,9 +72,11 @@ export const AuthProvider = ({ children }) => {
       
       return { success: true };
     } catch (error) {
+      console.error('Full Registration Error:', error.response?.data || error);
+      const errMsg = error.response?.data?.message || error.message || 'Registration failed';
       return { 
         success: false, 
-        message: error.response?.data?.message || 'Registration failed' 
+        message: errMsg 
       };
     }
   };

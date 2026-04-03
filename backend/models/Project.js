@@ -77,6 +77,35 @@ const projectSchema = new mongoose.Schema({
     max: 100,
     default: 0
   },
+  phases: {
+    type: [{
+      title: {
+        type: String,
+        enum: ['Synopsis', 'Design/UML', 'Frontend', 'Backend', 'Testing & Report']
+      },
+      status: {
+        type: String,
+        enum: ['pending', 'submitted', 'approved', 'rejected'],
+        default: 'pending'
+      },
+      submission: {
+        link: String, 
+        fileUrl: String, 
+        fileName: String,
+        comments: String,
+        submittedAt: Date
+      },
+      feedback: String,
+      approvedAt: Date
+    }],
+    default: [
+      { title: 'Synopsis', status: 'pending' },
+      { title: 'Design/UML', status: 'pending' },
+      { title: 'Frontend', status: 'pending' },
+      { title: 'Backend', status: 'pending' },
+      { title: 'Testing & Report', status: 'pending' }
+    ]
+  },
   feedback: [{
     from: {
       type: mongoose.Schema.Types.ObjectId,
@@ -97,11 +126,7 @@ const projectSchema = new mongoose.Schema({
       default: false
     },
     completedAt: Date
-  }],
-  createdAt: {
-    type: Date,
-    default: Date.now
-  }
+  }]
 }, {
   timestamps: true
 });

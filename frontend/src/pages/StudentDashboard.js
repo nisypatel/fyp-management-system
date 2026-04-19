@@ -35,6 +35,11 @@ const StudentDashboard = () => {
   const [emailInput, setEmailInput] = useState('');
 
   const [statusFilter, setStatusFilter] = useState('All');
+  const [showSupervisorConfirm, setShowSupervisorConfirm] = useState(false);
+  const [pendingSupervisorId, setPendingSupervisorId] = useState(null);
+  const [pendingProjectId, setPendingProjectId] = useState(null);
+  const [pendingSupervisorName, setPendingSupervisorName] = useState('');
+  const [supervisorSelectValue, setSupervisorSelectValue] = useState({});
   
   // Add filter logic
   const filteredProjects = projects.filter(project => {
@@ -145,14 +150,43 @@ const StudentDashboard = () => {
     setLoading(false);
   };
 
-  const handleRequestSupervisor = async (projectId, supervisorId) => {
+  const handleRequestSupervisor = (projectId, supervisorId) => {
+    if (!supervisorId) return;
+    
+    const supervisor = faculty.find(f => f._id === supervisorId);
+    if (supervisor) {
+      setPendingProjectId(projectId);
+      setPendingSupervisorId(supervisorId);
+      setPendingSupervisorName(supervisor.name);
+      setShowSupervisorConfirm(true);
+    }
+  };
+
+  const confirmSupervisorRequest = async () => {
+    if (!pendingProjectId || !pendingSupervisorId) return;
+    
     try {
-      await projectService.requestSupervisor(projectId, supervisorId);
-      toast.success('Supervisor request sent!');
+      await projectService.requestSupervisor(pendingProjectId, pendingSupervisorId);
+      toast.success(`Supervisor request sent to ${pendingSupervisorName}!`);
+      setShowSupervisorConfirm(false);
+      setSupervisorSelectValue({ ...supervisorSelectValue, [pendingProjectId]: '' });
+      setPendingProjectId(null);
+      setPendingSupervisorId(null);
+      setPendingSupervisorName('');
       fetchDashboardData();
     } catch (error) {
       toast.error(error.response?.data?.message || 'Error requesting supervisor');
     }
+  };
+
+  const cancelSupervisorRequest = () => {
+    setShowSupervisorConfirm(false);
+    if (pendingProjectId) {
+      setSupervisorSelectValue({ ...supervisorSelectValue, [pendingProjectId]: '' });
+    }
+    setPendingProjectId(null);
+    setPendingSupervisorId(null);
+    setPendingSupervisorName('');
   };
 
   const handleTeamInviteResponse = async (projectId, responseStatus) => {
@@ -289,11 +323,11 @@ const StudentDashboard = () => {
                               <StatusBadge status={project.supervisorStatus} />
                             </>
                           ) : (
-                            project.student?._id === user?._id ? (
+                            project.student?._id === user?._id && project.adminStatus !== 'rejected' && project.supervisorStatus !== 'rejected' ? (
                               <select
                                 className="form-select"
+                                value={supervisorSelectValue[project._id] || ''}
                                 onChange={(e) => handleRequestSupervisor(project._id, e.target.value)}
-                                defaultValue=""
                               >
                                 <option value="" disabled>Select Supervisor</option>
                                 {faculty.map(faculty => (
@@ -303,7 +337,11 @@ const StudentDashboard = () => {
                                 ))}
                               </select>
                             ) : (
-                              <small>Project owner will request supervisor</small>
+                              project.student?._id === user?._id ? (
+                                <small>Cannot request supervisor - project rejected</small>
+                              ) : (
+                                <small>Project owner will request supervisor</small>
+                              )
                             )
                           )}
                         </td>
@@ -515,6 +553,41 @@ const StudentDashboard = () => {
                     </button>
                   </div>
                 </form>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Supervisor Confirmation Modal */}
+        {showSupervisorConfirm && (
+          <div className="modal-overlay" onClick={() => cancelSupervisorRequest()}>
+            <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '400px' }}>
+              <div className="modal-header">
+                <h2 className="modal-title" style={{ color: '#3b82f6' }}>Confirm Supervisor Request</h2>
+                <button className="modal-close" onClick={() => cancelSupervisorRequest()}>×</button>
+              </div>
+              <div className="modal-body">
+                <p>You are about to send a supervision request to:</p>
+                <p style={{ fontSize: '1.1rem', fontWeight: 'bold', color: '#3b82f6', marginTop: '1rem' }}>
+                  {pendingSupervisorName}
+                </p>
+                <p style={{ marginTop: '1rem', fontSize: '0.95rem', color: '#666' }}>
+                  They will receive a notification and can accept or reject your request.
+                </p>
+                <div className="modal-footer" style={{ marginTop: '20px' }}>
+                  <button 
+                    className="btn btn-secondary" 
+                    onClick={() => cancelSupervisorRequest()}
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    className="btn btn-primary" 
+                    onClick={confirmSupervisorRequest}
+                  >
+                    Confirm Request
+                  </button>
+                </div>
               </div>
             </div>
           </div>

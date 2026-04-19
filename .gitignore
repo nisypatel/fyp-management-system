@@ -34,6 +34,11 @@ pnpm-debug.log*
 .env.production.local
 backend/.env
 frontend/.env
+backend/.env.*
+frontend/.env.*
+!.env.example
+!backend/.env.example
+!frontend/.env.example
 
 # Uploaded Files (Keep directory structure but ignore contents)
 backend/uploads/*
@@ -68,3 +73,14 @@ Thumbs.db
 .parcel-cache
 .next
 out
+tmp/
+temp/
+*.tmp
+
+# Private personal prep notes
+viva_qa.txt
+presentation_content.txt
+report_content.txt
+
+
+presentation/

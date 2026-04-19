@@ -1,13 +1,24 @@
 const nodemailer = require('nodemailer');
 
 const sendEmail = async (options) => {
-  // Create a transporter using environment variables or a default testing config (like mailtrap)
+  const host = process.env.SMTP_HOST;
+  const port = Number(process.env.SMTP_PORT || 587);
+  const user = process.env.SMTP_USER || process.env.SMTP_EMAIL;
+  const pass = process.env.SMTP_PASSWORD;
+
+  if (!host || !user || !pass) {
+    throw new Error(
+      'SMTP is not configured. Set SMTP_HOST, SMTP_PORT, SMTP_USER (or SMTP_EMAIL), and SMTP_PASSWORD in backend/.env'
+    );
+  }
+
   const transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST || 'smtp.mailtrap.io',
-    port: process.env.SMTP_PORT || 2525,
+    host,
+    port,
+    secure: process.env.SMTP_SECURE === 'true' || port === 465,
     auth: {
-      user: process.env.SMTP_EMAIL || 'test_user',
-      pass: process.env.SMTP_PASSWORD || 'test_password'
+      user,
+      pass
     }
   });
 
@@ -21,9 +32,14 @@ const sendEmail = async (options) => {
   };
 
   // Send the email
-  const info = await transporter.sendMail(message);
-
-  console.log('Message sent: %s', info.messageId);
+  try {
+    const info = await transporter.sendMail(message);
+    console.log('Message sent: %s', info.messageId);
+    return info;
+  } catch (error) {
+    console.error('Email send failed:', error.message);
+    throw error;
+  }
 };
 
 const sendProjectCompletionEmail = async (email, projectTitle, teamMemberName) => {

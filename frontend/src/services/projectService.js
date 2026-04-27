@@ -2,8 +2,11 @@
 import apiClient from './apiClient';
 
 export const projectService = {
-  async getProjects() {
-    const response = await apiClient.get('/projects');
+  async getProjects(params = {}) {
+    const response = await apiClient.get('/projects', { params });
+    if (params.page || params.limit) {
+      return response.data;
+    }
     return response.data.projects;
   },
 
@@ -48,12 +51,6 @@ export const projectService = {
     await apiClient.post(`/projects/${projectId}/feedback`, { message });
   },
 
-  async addDocument(projectId, formData) {
-    await apiClient.post(`/projects/${projectId}/documents`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
-    });
-  },
-
   async submitPhase(projectId, phaseId, formData) {
     await apiClient.put(`/projects/${projectId}/phases/${phaseId}/submit`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
@@ -64,10 +61,6 @@ export const projectService = {
     await apiClient.put(`/projects/${projectId}/phases/${phaseId}/evaluate`, { status, feedback });
   },
 
-  async updateProgress(projectId, progress) {
-    await apiClient.put(`/projects/${projectId}/progress`, { progress });
-  },
-
   async uploadScreenRecording(projectId, formData) {
     await apiClient.post(`/projects/${projectId}/screen-recording`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
@@ -76,5 +69,15 @@ export const projectService = {
 
   async reviewScreenRecording(projectId, status, feedback) {
     await apiClient.put(`/projects/${projectId}/screen-recording/review`, { status, feedback });
+  },
+
+  async getPhaseTemplate() {
+    const response = await apiClient.get('/projects/phase-template');
+    return response.data;
+  },
+
+  async updatePhaseTemplate(phases) {
+    const response = await apiClient.put('/projects/phase-template', { phases });
+    return response.data;
   }
 };

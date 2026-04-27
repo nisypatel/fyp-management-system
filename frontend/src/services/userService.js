@@ -7,13 +7,16 @@ export const userService = {
     return response.data.stats;
   },
 
-  async getFaculty() {
-    const response = await apiClient.get('/users/faculty');
+  async getFaculty(params = {}) {
+    const response = await apiClient.get('/users/faculty', { params });
     return response.data.faculty;
   },
 
-  async getUsers() {
-    const response = await apiClient.get('/users');
+  async getUsers(params = {}) {
+    const response = await apiClient.get('/users', { params });
+    if (params.page || params.limit) {
+      return response.data;
+    }
     return response.data.users;
   },
 

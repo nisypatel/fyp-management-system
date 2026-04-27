@@ -12,6 +12,7 @@ import DashboardHeader from '../components/ui/DashboardHeader';
 import StatsCard from '../components/ui/StatsCard';
 import StatusBadge from '../components/ui/StatusBadge';
 import EmptyState from '../components/ui/EmptyState';
+import { getApiErrorMessage, hasAllowedExtension, isValidEmail, maxSizeInBytes } from '../utils/validation';
 
 const StudentDashboard = () => {
   const { user } = useAuth();
@@ -19,7 +20,7 @@ const StudentDashboard = () => {
   const [stats, setStats] = useState({});
   const [projects, setProjects] = useState([]);
   const [teamInvites, setTeamInvites] = useState([]);
-  const [faculty, setTeachers] = useState([]);
+  const [faculty, setFaculty] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
@@ -40,6 +41,8 @@ const StudentDashboard = () => {
   const [pendingProjectId, setPendingProjectId] = useState(null);
   const [pendingSupervisorName, setPendingSupervisorName] = useState('');
   const [supervisorSelectValue, setSupervisorSelectValue] = useState({});
+  const [supervisorDepartmentFilter, setSupervisorDepartmentFilter] = useState('All');
+  const [supervisorSearch, setSupervisorSearch] = useState('');
   
   // Add filter logic
   const filteredProjects = projects.filter(project => {
@@ -54,6 +57,20 @@ const StudentDashboard = () => {
     return project.status.toLowerCase() === filterLower;
   });
 
+  const filteredFaculty = faculty.filter((person) => {
+    const departmentMatch =
+      supervisorDepartmentFilter === 'All' ||
+      (person.department || '').toLowerCase() === supervisorDepartmentFilter.toLowerCase();
+
+    const searchValue = supervisorSearch.trim().toLowerCase();
+    const searchMatch =
+      !searchValue ||
+      (person.name || '').toLowerCase().includes(searchValue) ||
+      (person.email || '').toLowerCase().includes(searchValue);
+
+    return departmentMatch && searchMatch;
+  });
+
   usePageTitle('Student Dashboard | FYP Management');
 
   useEffect(() => {
@@ -62,7 +79,7 @@ const StudentDashboard = () => {
 
   const fetchDashboardData = async () => {
     try {
-      const [dashboardStats, allProjects, allTeachers, pendingInvites] = await Promise.all([
+      const [dashboardStats, allProjects, allFaculty, pendingInvites] = await Promise.all([
         userService.getDashboardStats(),
         projectService.getProjects(),
         userService.getFaculty(),
@@ -70,7 +87,7 @@ const StudentDashboard = () => {
       ]);
       setStats(dashboardStats);
       setProjects(allProjects);
-      setTeachers(allTeachers);
+      setFaculty(allFaculty);
       setTeamInvites(pendingInvites);
     } catch (error) {
       // During logout, protected APIs return 401; avoid unnecessary red toasts.
@@ -83,6 +100,23 @@ const StudentDashboard = () => {
   const handleAddMember = (e) => {
     e.preventDefault();
     const email = emailInput.trim();
+    if (!email) return;
+
+    if (!isValidEmail(email)) {
+      toast.error('Please enter a valid team member email');
+      return;
+    }
+
+    if (email.toLowerCase() === user?.email?.toLowerCase()) {
+      toast.error('You cannot add yourself as a team member');
+      return;
+    }
+
+    if (formData.teamMembers.length >= 4) {
+      toast.error('You can add up to 4 team members');
+      return;
+    }
+
     if (email && !formData.teamMembers.includes(email)) {
       setFormData({ ...formData, teamMembers: [...formData.teamMembers, email] });
       setEmailInput('');
@@ -104,22 +138,60 @@ const StudentDashboard = () => {
   };
 
   const handleFileChange = (e) => {
+    const selectedFile = e.target.files[0];
+
+    if (!selectedFile) {
+      setFormData({
+        ...formData,
+        proposalFile: null
+      });
+      return;
+    }
+
+    const allowedDocumentExt = ['.pdf', '.doc', '.docx', '.ppt', '.pptx'];
+    if (!hasAllowedExtension(selectedFile.name, allowedDocumentExt)) {
+      toast.error('Unsupported proposal format. Please upload PDF, DOC, DOCX, PPT, or PPTX.');
+      return;
+    }
+
+    if (selectedFile.size > maxSizeInBytes.document) {
+      toast.error('Proposal file exceeds 10MB limit');
+      return;
+    }
+
     setFormData({
       ...formData,
-      proposalFile: e.target.files[0]
+      proposalFile: selectedFile
     });
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    if (formData.title.trim().length < 5) {
+      toast.error('Project title must be at least 5 characters');
+      return;
+    }
+
+    if (formData.description.trim().length < 20) {
+      toast.error('Description must be at least 20 characters');
+      return;
+    }
+
+    const technologyItems = formData.technologies.split(',').map((t) => t.trim()).filter(Boolean);
+    if (technologyItems.length === 0) {
+      toast.error('Please provide at least one technology');
+      return;
+    }
+
     setLoading(true);
 
     try {
       const data = new FormData();
-      data.append('title', formData.title);
-      data.append('description', formData.description);
+      data.append('title', formData.title.trim());
+      data.append('description', formData.description.trim());
       data.append('category', formData.category);
-      data.append('technologies', JSON.stringify(formData.technologies.split(',').map(t => t.trim())));
+      data.append('technologies', JSON.stringify(technologyItems));
       
       if (formData.projectType === 'Team Project' && formData.teamMembers.length > 0) {
         data.append('teamMembers', JSON.stringify(formData.teamMembers));
@@ -145,7 +217,7 @@ const StudentDashboard = () => {
       setEmailInput('');
       fetchDashboardData();
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Error submitting project');
+      toast.error(getApiErrorMessage(error, 'Error submitting project'));
     }
     setLoading(false);
   };
@@ -292,6 +364,30 @@ const StudentDashboard = () => {
                 <option value="in-progress">In Progress</option>
                 <option value="completed">Completed</option>
               </select>
+              <select
+                className="form-select"
+                style={{ width: '220px' }}
+                value={supervisorDepartmentFilter}
+                onChange={(e) => setSupervisorDepartmentFilter(e.target.value)}
+              >
+                <option value="All">All Supervisor Departments</option>
+                <option value="Computer Science">Computer Science</option>
+                <option value="Electronics Engineering">Electronics Engineering</option>
+                <option value="Electrical Engineering">Electrical Engineering</option>
+                <option value="Mechanical Engineering">Mechanical Engineering</option>
+                <option value="Civil Engineering">Civil Engineering</option>
+                <option value="Information Technology">Information Technology</option>
+                <option value="Business Administration">Business Administration</option>
+                <option value="Other">Other</option>
+              </select>
+              <input
+                type="text"
+                className="form-input"
+                style={{ width: '220px' }}
+                placeholder="Search supervisors"
+                value={supervisorSearch}
+                onChange={(e) => setSupervisorSearch(e.target.value)}
+              />
             </div>
           </div>
           <div className="card-body">
@@ -330,9 +426,9 @@ const StudentDashboard = () => {
                                 onChange={(e) => handleRequestSupervisor(project._id, e.target.value)}
                               >
                                 <option value="" disabled>Select Supervisor</option>
-                                {faculty.map(faculty => (
+                                {filteredFaculty.map(faculty => (
                                   <option key={faculty._id} value={faculty._id}>
-                                    {faculty.name} ({faculty.department})
+                                    {faculty.name} ({faculty.department}) - {faculty.workload?.loadTag || 'Available'} | Active: {faculty.workload?.activeAssigned ?? 0}
                                   </option>
                                 ))}
                               </select>

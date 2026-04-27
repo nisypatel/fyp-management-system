@@ -18,7 +18,7 @@ apiClient.interceptors.response.use(
       const onLoginPage = window.location.pathname === '/login';
 
       if (!isAuthCheck && !onLoginPage) {
-        window.location.href = '/login';
+        window.dispatchEvent(new CustomEvent('auth:session-expired'));
       }
     }
     return Promise.reject(error);

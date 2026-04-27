@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-toastify';
 import usePageTitle from '../hooks/usePageTitle';
 import { FaEye, FaEyeSlash } from 'react-icons/fa';
+import { isStrongPassword, isValidEmail, isValidPhone } from '../utils/validation';
 
 const Register = () => {
   const [formData, setFormData] = useState({
@@ -26,18 +27,61 @@ const Register = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
+    const trimmedName = formData.name.trim();
+    const trimmedEmail = formData.email.trim().toLowerCase();
+
+    if (trimmedName.length < 2) {
+      toast.error('Name must be at least 2 characters');
+      return;
+    }
+
+    if (!isValidEmail(trimmedEmail)) {
+      toast.error('Please enter a valid email address');
+      return;
+    }
+
+    if (!isStrongPassword(formData.password)) {
+      toast.error('Password must be at least 8 characters and include letters and numbers');
+      return;
+    }
+
+    if (!isValidPhone(formData.phone)) {
+      toast.error('Phone number must be exactly 10 digits');
+      return;
+    }
+
+    if (formData.role === 'student' && !formData.enrollmentNumber.trim()) {
+      toast.error('Enrollment number is required for students');
+      return;
+    }
+
+    if (formData.role === 'faculty' && !formData.employeeId.trim()) {
+      toast.error('Employee ID is required for faculty');
+      return;
+    }
+
     // Basic client-side validation before we call the backend.
     if (formData.password !== formData.confirmPassword) {
       toast.error('Passwords do not match');
       return;
     }
     setLoading(true);
-    const result = await register(formData);
+
+    const payload = {
+      ...formData,
+      name: trimmedName,
+      email: trimmedEmail,
+      enrollmentNumber: formData.enrollmentNumber.trim(),
+      employeeId: formData.employeeId.trim(),
+      phone: formData.phone.trim()
+    };
+
+    const result = await register(payload);
     if (result.success) {
       toast.success('Registration successful!');
       navigate('/');
     } else {
-      toast.error(result.message);
+      toast.error(result.message || 'Registration failed');
     }
     setLoading(false);
   };
@@ -110,7 +154,7 @@ const Register = () => {
                       value={formData.password} 
                       onChange={handleChange} 
                       required 
-                      minLength={6} 
+                      minLength={8}
                     />
                     <button type="button" className="password-toggle" onClick={() => setShowPassword(!showPassword)} title="Toggle Password Visibility">
                       {showPassword ? <FaEyeSlash /> : <FaEye />}

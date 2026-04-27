@@ -56,12 +56,53 @@ const userSchema = new mongoose.Schema({
     type: String,
     match: [/^[0-9]{10}$/, 'Please add a valid phone number']
   },
+  avatar: {
+    publicId: {
+      type: String,
+      default: null
+    },
+    url: {
+      type: String,
+      default: null
+    },
+    uploadedAt: {
+      type: Date,
+      default: null
+    }
+  },
   isActive: {
     type: Boolean,
     default: true
   },
   resetPasswordToken: String,
   resetPasswordExpire: Date,
+  updatedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+  changeHistory: [{
+    changedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null
+    },
+    action: {
+      type: String,
+      required: true,
+      trim: true,
+      maxlength: 100
+    },
+    changes: {
+      type: String,
+      trim: true,
+      maxlength: 500
+    },
+    changedAt: {
+      type: Date,
+      default: Date.now
+    }
+  }],
   createdAt: {
     type: Date,
     default: Date.now

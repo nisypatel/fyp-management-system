@@ -1,5 +1,5 @@
 // Purpose: Admin dashboard for project approvals and user management.
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-toastify';
@@ -22,6 +22,11 @@ const DEPARTMENTS = [
   'Business Administration',
   'Other'
 ];
+
+const createPhaseRow = (title = '') => ({
+  id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+  title
+});
 
 const AdminDashboard = () => {
   const { user } = useAuth();
@@ -48,6 +53,25 @@ const AdminDashboard = () => {
 
   const [statusFilter, setStatusFilter] = useState('All');
   const [userRoleFilter, setUserRoleFilter] = useState('All');
+  const [projectSearch, setProjectSearch] = useState('');
+  const [userSearch, setUserSearch] = useState('');
+  const [phaseTemplate, setPhaseTemplate] = useState([]);
+  const [phaseTemplateLoading, setPhaseTemplateLoading] = useState(false);
+  const [savingPhaseTemplate, setSavingPhaseTemplate] = useState(false);
+
+  // Pagination state
+  const [projectsPagination, setProjectsPagination] = useState({
+    page: 1,
+    limit: 10,
+    total: 0,
+    totalPages: 0
+  });
+  const [usersPagination, setUsersPagination] = useState({
+    page: 1,
+    limit: 10,
+    total: 0,
+    totalPages: 0
+  });
 
   // Add the newly filtered projects logic here!
   const filteredProjects = projects.filter(project => {
@@ -67,30 +91,58 @@ const AdminDashboard = () => {
 
   usePageTitle('Admin Dashboard | FYP Management');
 
-  useEffect(() => {
-    if (user) {
-      fetchDashboardData();
-    }
-  }, [activeTab, user]);
-
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = useCallback(async () => {
     try {
       const dashboardStats = await userService.getDashboardStats();
       setStats(dashboardStats);
 
       if (activeTab === 'projects') {
-        const allProjects = await projectService.getProjects();
-        setProjects(allProjects);
+        const projectsResponse = await projectService.getProjects({
+          page: projectsPagination.page,
+          limit: projectsPagination.limit,
+          q: projectSearch.trim() || undefined
+        });
+        setProjects(projectsResponse.projects || []);
+        setProjectsPagination(prev => ({
+          ...prev,
+          total: projectsResponse.total || 0,
+          totalPages: projectsResponse.totalPages || 0
+        }));
       } else if (activeTab === 'users') {
-        const allUsers = await userService.getUsers();
-        setUsers(allUsers);
+        const usersResponse = await userService.getUsers({
+          page: usersPagination.page,
+          limit: usersPagination.limit,
+          role: userRoleFilter !== 'All' ? userRoleFilter : undefined,
+          q: userSearch.trim() || undefined
+        });
+        setUsers(usersResponse.users || []);
+        setUsersPagination(prev => ({
+          ...prev,
+          total: usersResponse.total || 0,
+          totalPages: usersResponse.totalPages || 0
+        }));
+      } else if (activeTab === 'phases') {
+        setPhaseTemplateLoading(true);
+        const response = await projectService.getPhaseTemplate();
+        const rows = (response.phases || []).map((phase) => createPhaseRow(phase.title));
+        setPhaseTemplate(rows.length ? rows : [createPhaseRow('Phase 1')]);
+        setPhaseTemplateLoading(false);
       }
     } catch (error) {
+      if (activeTab === 'phases') {
+        setPhaseTemplateLoading(false);
+      }
       if (error.response && error.response.status !== 401) {
         toast.error('Error loading dashboard data');
       }
     }
-  };
+  }, [activeTab, projectsPagination.page, projectsPagination.limit, usersPagination.page, usersPagination.limit, projectSearch, userSearch, userRoleFilter]);
+
+  useEffect(() => {
+    if (user) {
+      fetchDashboardData();
+    }
+  }, [activeTab, user, fetchDashboardData]);
 
   const handleProjectApproval = async (projectId, status) => {
     setLoading(true);
@@ -186,6 +238,135 @@ const AdminDashboard = () => {
     });
   };
 
+  // Pagination handlers
+  const handleProjectsPageChange = (newPage) => {
+    setProjectsPagination(prev => ({ ...prev, page: newPage }));
+  };
+
+  const handleUsersPageChange = (newPage) => {
+    setUsersPagination(prev => ({ ...prev, page: newPage }));
+  };
+
+  const handleProjectsLimitChange = (newLimit) => {
+    setProjectsPagination(prev => ({ ...prev, limit: newLimit, page: 1 }));
+  };
+
+  const handleUsersLimitChange = (newLimit) => {
+    setUsersPagination(prev => ({ ...prev, limit: newLimit, page: 1 }));
+  };
+
+  const renderPaginationControls = (pagination, onPageChange, onLimitChange) => {
+    const totalPages = pagination.totalPages || 1;
+    const currentPage = Math.min(pagination.page, totalPages);
+
+    return (
+      <div
+        className="flex-between"
+        style={{
+          marginTop: '12px',
+          flexWrap: 'wrap',
+          gap: '10px',
+          alignItems: 'center'
+        }}
+      >
+        <div style={{ color: '#64748b', fontSize: '0.9rem' }}>
+          Showing page {currentPage} of {totalPages} ({pagination.total || 0} records)
+        </div>
+
+        <div className="flex gap-1" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
+          <label htmlFor={`limit-${activeTab}`} style={{ fontSize: '0.9rem', color: '#475569' }}>
+            Rows:
+          </label>
+          <select
+            id={`limit-${activeTab}`}
+            className="form-select"
+            style={{ width: '90px' }}
+            value={pagination.limit}
+            onChange={(e) => onLimitChange(Number(e.target.value))}
+          >
+            <option value={5}>5</option>
+            <option value={10}>10</option>
+            <option value={20}>20</option>
+            <option value={50}>50</option>
+          </select>
+
+          <button
+            className="btn btn-sm btn-outline"
+            onClick={() => onPageChange(currentPage - 1)}
+            disabled={currentPage <= 1}
+          >
+            Previous
+          </button>
+          <button
+            className="btn btn-sm btn-outline"
+            onClick={() => onPageChange(currentPage + 1)}
+            disabled={currentPage >= totalPages}
+          >
+            Next
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  const updatePhaseTitle = (id, title) => {
+    setPhaseTemplate((current) => current.map((phase) => (phase.id === id ? { ...phase, title } : phase)));
+  };
+
+  const addPhaseRow = () => {
+    setPhaseTemplate((current) => [...current, createPhaseRow(`Phase ${current.length + 1}`)]);
+  };
+
+  const removePhaseRow = (id) => {
+    setPhaseTemplate((current) => {
+      if (current.length <= 1) {
+        toast.error('At least one phase is required');
+        return current;
+      }
+      return current.filter((phase) => phase.id !== id);
+    });
+  };
+
+  const movePhaseRow = (index, direction) => {
+    setPhaseTemplate((current) => {
+      const targetIndex = index + direction;
+      if (targetIndex < 0 || targetIndex >= current.length) {
+        return current;
+      }
+
+      const reordered = [...current];
+      const [moved] = reordered.splice(index, 1);
+      reordered.splice(targetIndex, 0, moved);
+      return reordered;
+    });
+  };
+
+  const savePhaseTemplate = async () => {
+    const payload = phaseTemplate.map((phase) => ({ title: phase.title.trim() })).filter((phase) => phase.title);
+
+    if (!payload.length) {
+      toast.error('Please keep at least one valid phase title');
+      return;
+    }
+
+    const hasDuplicate = new Set(payload.map((phase) => phase.title.toLowerCase())).size !== payload.length;
+    if (hasDuplicate) {
+      toast.error('Phase titles must be unique');
+      return;
+    }
+
+    setSavingPhaseTemplate(true);
+    try {
+      const response = await projectService.updatePhaseTemplate(payload);
+      const rows = (response.phases || []).map((phase) => createPhaseRow(phase.title));
+      setPhaseTemplate(rows);
+      toast.success('Phase template updated successfully');
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Error updating phase template');
+    }
+    setSavingPhaseTemplate(false);
+  };
+
   return (
     <>
       <Navbar />
@@ -194,6 +375,9 @@ const AdminDashboard = () => {
 
         {/* Stats Cards */}
         <div className="stats-grid">
+          <StatsCard 
+            onClick={() => { setActiveTab('users'); setUserRoleFilter('All'); }} 
+            icon={FiUsers} variant="warning" value={stats.totalUsers} label="Total Users" />
           <StatsCard 
             onClick={() => { setActiveTab('users'); setUserRoleFilter('student'); }} 
             icon={FiUsers} variant="primary" value={stats.totalStudents} label="Total Students" />
@@ -206,6 +390,9 @@ const AdminDashboard = () => {
           <StatsCard 
             onClick={() => { setActiveTab('projects'); setStatusFilter('pending'); }} 
             icon={FiClock} variant="warning" value={stats.pendingProjects} label="Pending Approval" />
+          <StatsCard 
+            onClick={() => { setActiveTab('projects'); setStatusFilter('rejected'); }} 
+            icon={FiClock} variant="danger" value={stats.rejectedProjects} label="Rejected Projects" />
         </div>
 
         {/* Tabs */}
@@ -231,6 +418,12 @@ const AdminDashboard = () => {
                 >
                   Users
                 </button>
+                <button
+                  className={`btn ${activeTab === 'phases' ? 'btn-primary' : 'btn-outline'}`}
+                  onClick={() => setActiveTab('phases')}
+                >
+                  Phase Template
+                </button>
               </div>
               {activeTab === 'users' && (
                 <button className="btn btn-primary" onClick={() => setShowUserModal(true)}>
@@ -241,16 +434,99 @@ const AdminDashboard = () => {
           </div>
           <div className="card-body">
             {activeTab === 'overview' && (
-              <div className="stats-grid">
-                <StatsCard onClick={() => { setActiveTab('projects'); setStatusFilter('approved'); }} icon={FiCheckCircle} variant="success" value={stats.approvedProjects} label="Approved Projects" />
-                <StatsCard onClick={() => { setActiveTab('projects'); setStatusFilter('in-progress'); }} icon={FiFolder} variant="primary" value={stats.inProgressProjects} label="In Progress" />
-                <StatsCard onClick={() => { setActiveTab('projects'); setStatusFilter('completed'); }} icon={FiCheckCircle} variant="success" value={stats.completedProjects} label="Completed" />
-              </div>
+              <>
+                <div className="stats-grid">
+                  <StatsCard onClick={() => { setActiveTab('projects'); setStatusFilter('approved'); }} icon={FiCheckCircle} variant="success" value={stats.approvedProjects} label="Approved Projects" />
+                  <StatsCard onClick={() => { setActiveTab('projects'); setStatusFilter('in-progress'); }} icon={FiFolder} variant="primary" value={stats.inProgressProjects} label="In Progress" />
+                  <StatsCard onClick={() => { setActiveTab('projects'); setStatusFilter('completed'); }} icon={FiCheckCircle} variant="success" value={stats.completedProjects} label="Completed" />
+                  <StatsCard onClick={() => { setActiveTab('projects'); setStatusFilter('in-progress'); }} icon={FiClock} variant="danger" value={stats.delayedProjects || 0} label="Delayed Projects" />
+                  <StatsCard icon={FiClock} variant="warning" value={stats.avgPhaseReviewHours || 0} label="Avg Review (hrs)" />
+                  <StatsCard icon={FiClock} variant="danger" value={stats.phaseRejections || 0} label="Phase Rejections" />
+                </div>
+
+                <div className="card" style={{ marginTop: '16px', border: '1px solid #e5e7eb' }}>
+                  <div className="card-header">
+                    <h3 style={{ margin: 0 }}>Delayed Phase Alerts</h3>
+                  </div>
+                  <div className="card-body">
+                    {!stats.delayedAlerts || stats.delayedAlerts.length === 0 ? (
+                      <p style={{ margin: 0, color: '#64748b' }}>No delayed phase alerts right now.</p>
+                    ) : (
+                      <div className="table-container">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>Project</th>
+                              <th>Student</th>
+                              <th>Current Phase</th>
+                              <th>Status</th>
+                              <th>Inactive (days)</th>
+                              <th>Action</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {stats.delayedAlerts.map((alert) => (
+                              <tr key={alert.projectId}>
+                                <td>{alert.title}</td>
+                                <td>{alert.studentName}</td>
+                                <td>{alert.currentPhaseTitle}</td>
+                                <td><StatusBadge status={alert.currentPhaseStatus} prefix="Phase" /></td>
+                                <td>{alert.inactiveDays}</td>
+                                <td>
+                                  <button
+                                    className="btn btn-sm btn-outline"
+                                    onClick={() => navigate(`/project/${alert.projectId}`)}
+                                  >
+                                    View
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="card" style={{ marginTop: '16px', border: '1px solid #e5e7eb' }}>
+                  <div className="card-header">
+                    <h3 style={{ margin: 0 }}>Rejection Hotspots</h3>
+                  </div>
+                  <div className="card-body">
+                    {!stats.topRejectionPhases || stats.topRejectionPhases.length === 0 ? (
+                      <p style={{ margin: 0, color: '#64748b' }}>No rejection trend data yet.</p>
+                    ) : (
+                      <div className="flex gap-2" style={{ flexWrap: 'wrap' }}>
+                        {stats.topRejectionPhases.map((item) => (
+                          <span key={item.phaseTitle} className="badge badge-danger">
+                            {item.phaseTitle}: {item.count}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <p style={{ marginTop: '12px', marginBottom: 0, color: '#64748b' }}>
+                      Screen Review Rejections: <strong>{stats.screenReviewRejections || 0}</strong>
+                    </p>
+                  </div>
+                </div>
+              </>
             )}
 
             {activeTab === 'projects' && (
               <>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '15px' }}>
+                  <input
+                    type="text"
+                    className="form-input"
+                    style={{ width: '260px', marginRight: '10px' }}
+                    placeholder="Search by title or description"
+                    value={projectSearch}
+                    onChange={(e) => {
+                      setProjectSearch(e.target.value);
+                      setProjectsPagination((prev) => ({ ...prev, page: 1 }));
+                    }}
+                  />
                   <select
                     className="form-select"
                     style={{ width: '200px' }}
@@ -343,17 +619,32 @@ const AdminDashboard = () => {
                     </tbody>
                   </table>
                 </div>
+                {renderPaginationControls(projectsPagination, handleProjectsPageChange, handleProjectsLimitChange)}
               </>
             )}
 
             {activeTab === 'users' && (
               <>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '15px' }}>
+                  <input
+                    type="text"
+                    className="form-input"
+                    style={{ width: '240px', marginRight: '10px' }}
+                    placeholder="Search by name or email"
+                    value={userSearch}
+                    onChange={(e) => {
+                      setUserSearch(e.target.value);
+                      setUsersPagination((prev) => ({ ...prev, page: 1 }));
+                    }}
+                  />
                   <select 
                     className="form-select" 
                     style={{ width: '200px' }} 
                     value={userRoleFilter} 
-                    onChange={(e) => setUserRoleFilter(e.target.value)}
+                    onChange={(e) => {
+                      setUserRoleFilter(e.target.value);
+                      setUsersPagination((prev) => ({ ...prev, page: 1 }));
+                    }}
                   >
                     <option value="All">All Users</option>
                     <option value="student">Students Only</option>
@@ -416,7 +707,82 @@ const AdminDashboard = () => {
                     </tbody>
                   </table>
                 </div>
+                {renderPaginationControls(usersPagination, handleUsersPageChange, handleUsersLimitChange)}
               </>
+            )}
+
+            {activeTab === 'phases' && (
+              <div className="card" style={{ border: '1px solid #e5e7eb' }}>
+                <div className="card-header">
+                  <h3 style={{ margin: 0 }}>Project Phase Template</h3>
+                </div>
+                <div className="card-body">
+                  <p className="text-secondary" style={{ marginTop: 0 }}>
+                    Admin controls the number of phases and their order. New projects use this template.
+                  </p>
+
+                  {phaseTemplateLoading ? (
+                    <p>Loading phase template...</p>
+                  ) : (
+                    <>
+                      <div style={{ marginBottom: '12px' }}>
+                        <strong>Total phases: {phaseTemplate.length}</strong>
+                      </div>
+
+                      {phaseTemplate.map((phase, index) => (
+                        <div key={phase.id} style={{ display: 'grid', gridTemplateColumns: '40px 1fr auto', gap: '10px', alignItems: 'center', marginBottom: '10px' }}>
+                          <span className="badge badge-secondary">{index + 1}</span>
+                          <input
+                            type="text"
+                            className="form-input"
+                            value={phase.title}
+                            onChange={(e) => updatePhaseTitle(phase.id, e.target.value)}
+                            placeholder={`Phase ${index + 1} title`}
+                            maxLength={100}
+                          />
+                          <div className="flex gap-1" style={{ flexWrap: 'nowrap' }}>
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-outline"
+                              onClick={() => movePhaseRow(index, -1)}
+                              disabled={index === 0}
+                              title="Move up"
+                            >
+                              Up
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-outline"
+                              onClick={() => movePhaseRow(index, 1)}
+                              disabled={index === phaseTemplate.length - 1}
+                              title="Move down"
+                            >
+                              Down
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-danger"
+                              onClick={() => removePhaseRow(phase.id)}
+                              disabled={phaseTemplate.length <= 1}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+
+                      <div className="flex gap-2" style={{ marginTop: '14px' }}>
+                        <button type="button" className="btn btn-outline" onClick={addPhaseRow}>
+                          Add Phase
+                        </button>
+                        <button type="button" className="btn btn-primary" onClick={savePhaseTemplate} disabled={savingPhaseTemplate}>
+                          {savingPhaseTemplate ? 'Saving...' : 'Save Template'}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
             )}
           </div>
         </div>

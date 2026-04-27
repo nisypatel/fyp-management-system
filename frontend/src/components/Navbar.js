@@ -15,14 +15,25 @@ const Navbar = () => {
 
   useEffect(() => {
     fetchNotifications();
-    // Refresh notifications every 10 seconds
-    const interval = setInterval(fetchNotifications, 10000);
-    return () => clearInterval(interval);
+
+    const pollNotifications = () => {
+      if (!document.hidden) {
+        fetchNotifications();
+      }
+    };
+
+    const interval = setInterval(pollNotifications, 15000);
+    window.addEventListener('focus', fetchNotifications);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', fetchNotifications);
+    };
   }, []);
 
   const fetchNotifications = async () => {
     try {
-      const data = await notificationService.getNotifications();
+      const data = await notificationService.getNotifications({ page: 1, limit: 5 });
       setNotifications(data.notifications || []);
       setUnreadCount(data.unreadCount || 0);
     } catch (error) {

@@ -21,8 +21,26 @@ export const authService = {
     await apiClient.post('/auth/logout');
   },
 
+  async deactivateMyAccount() {
+    const response = await apiClient.delete('/auth/me');
+    return response.data;
+  },
+
   async updateProfile(formData) {
     const response = await apiClient.put('/auth/updateprofile', formData);
+    return response.data.user;
+  },
+
+  async uploadProfileImage(file) {
+    const formData = new FormData();
+    formData.append('profileImage', file);
+
+    const response = await apiClient.post('/auth/profile-image', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      }
+    });
+
     return response.data.user;
   },
 

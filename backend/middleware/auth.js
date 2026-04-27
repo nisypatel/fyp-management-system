@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const { normalizeRole } = require('../utils/role');
 
 // Protect routes - verify JWT token
 exports.protect = async (req, res, next) => {
@@ -36,11 +37,17 @@ exports.protect = async (req, res, next) => {
       });
     }
 
+    req.user.role = normalizeRole(req.user.role);
+
     next();
   } catch (error) {
+    const message = error.name === 'TokenExpiredError'
+      ? 'Your session has expired. Please login again.'
+      : 'Not authorized to access this route';
+
     return res.status(401).json({
       success: false,
-      message: 'Not authorized to access this route'
+      message
     });
   }
 };

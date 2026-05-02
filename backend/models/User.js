@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
+const UserType = require('./UserType');
 
 const userSchema = new mongoose.Schema({
   name: {
@@ -70,6 +71,48 @@ const userSchema = new mongoose.Schema({
       default: null
     }
   },
+  verificationStatus: {
+    type: String,
+    enum: ['unverified', 'otp_pending', 'otp_verified', 'id_pending', 'verified', 'rejected'],
+    default: 'unverified'
+  },
+  verificationMethod: {
+    type: String,
+    enum: ['otp', 'id_card'],
+    default: null
+  },
+  verificationEmail: {
+    type: String,
+    trim: true,
+    lowercase: true,
+    default: null
+  },
+  otpToken: String,
+  otpExpires: Date,
+  idCardFile: {
+    filename: String,
+    originalName: String,
+    path: String,
+    size: Number,
+    uploadedAt: Date
+  },
+  verificationAudit: [{
+    action: {
+      type: String,
+      required: true,
+      trim: true,
+      maxlength: 100
+    },
+    performedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    timestamp: {
+      type: Date,
+      default: Date.now
+    },
+    notes: String
+  }],
   isActive: {
     type: Boolean,
     default: true
@@ -79,6 +122,11 @@ const userSchema = new mongoose.Schema({
   updatedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
+    default: null
+  },
+  roleType: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'UserType',
     default: null
   },
   changeHistory: [{
@@ -114,6 +162,7 @@ const userSchema = new mongoose.Schema({
 // Index for faster queries
 userSchema.index({ email: 1 });
 userSchema.index({ role: 1 });
+userSchema.index({ roleType: 1 });
 userSchema.index({ enrollmentNumber: 1 });
 userSchema.index({ employeeId: 1 });
 
@@ -124,6 +173,17 @@ userSchema.pre('save', async function(next) {
   }
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
+  next();
+});
+
+userSchema.pre('save', async function(next) {
+  if (this.role && !this.roleType) {
+    const normalizedRole = this.role.trim().toLowerCase();
+    const type = await UserType.findOne({ key: normalizedRole });
+    if (type) {
+      this.roleType = type._id;
+    }
+  }
   next();
 });
 

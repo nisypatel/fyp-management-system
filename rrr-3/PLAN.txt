@@ -1,0 +1,15 @@
+Plan for this session: COMPLETED
+
+1. Preset management UI finished so admins can view preset details and reorder preset phases.
+2. Preset view/edit modal finished with phase move up/down controls and exact-order saving.
+3. Backend preset route ordering fixed so `/active` is not shadowed by `/:id`.
+4. Preset schema updated with ordered phases and migration support for existing presets.
+5. User schema cleanup finished:
+   - Separate `UserType` collection added for normalized role metadata.
+   - `roleType` references added to `User` documents.
+   - Existing users are migrated to populate `roleType` correctly.
+6. Startup schema migration support added for database consistency.
+7. Backend tests re-run and now pass after fixing the missing `UserType` mock in the integration test.
+8. `rrr-3/COMPLETED.txt` was kept updated while the work was being done.
+
+If you need to continue later, the useful handoff point is the final verification and any manual UI smoke test you want to perform.

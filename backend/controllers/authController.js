@@ -1,4 +1,6 @@
 const User = require('../models/User');
+const UserType = require('../models/UserType');
+const { normalizeRole } = require('../utils/role');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { sendEmail } = require('../utils/sendEmail');
@@ -61,6 +63,7 @@ exports.register = async (req, res) => {
     }
 
     const { name, email, password, role, department, enrollmentNumber, employeeId, phone } = req.body;
+    const normalizedRole = normalizeRole(role) || 'student';
 
     // Check if user email exists
     const emailExists = await User.findOne({ email });
@@ -102,16 +105,21 @@ exports.register = async (req, res) => {
       name,
       email,
       password,
-      role: role || 'student',
+      role: normalizedRole,
       updatedBy: null,
       changeHistory: [
         {
           changedBy: null,
           action: 'user_registered',
-          changes: `Self-registered with role ${role || 'student'}`
+          changes: `Self-registered with role ${normalizedRole}`
         }
       ]
     };
+
+    const userType = await UserType.findOne({ key: normalizedRole });
+    if (userType) {
+      userData.roleType = userType._id;
+    }
 
     if (phone) {
       userData.phone = phone;

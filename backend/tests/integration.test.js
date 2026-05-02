@@ -16,9 +16,19 @@ jest.mock('../models/Notification', () => ({
   countDocuments: jest.fn()
 }));
 
-jest.mock('../models/PhaseTemplate', () => ({
+jest.mock('../models/UserType', () => ({
+  findOne: jest.fn()
+}));
+
+jest.mock('../models/Preset', () => ({
   findOne: jest.fn(),
-  findOneAndUpdate: jest.fn()
+  findOneAndUpdate: jest.fn(),
+  findById: jest.fn(),
+  findByIdAndUpdate: jest.fn(),
+  updateMany: jest.fn(),
+  countDocuments: jest.fn(),
+  create: jest.fn(),
+  deleteOne: jest.fn()
 }));
 
 jest.mock('../utils/sendEmail', () => ({
@@ -28,7 +38,8 @@ jest.mock('../utils/sendEmail', () => ({
 const User = require('../models/User');
 const Project = require('../models/Project');
 const Notification = require('../models/Notification');
-const PhaseTemplate = require('../models/PhaseTemplate');
+const UserType = require('../models/UserType');
+const Preset = require('../models/Preset');
 const authController = require('../controllers/authController');
 const projectController = require('../controllers/projectController');
 const notificationController = require('../controllers/notificationController');
@@ -67,7 +78,8 @@ const makeReq = (overrides = {}) => ({
 
 beforeEach(() => {
   jest.clearAllMocks();
-  PhaseTemplate.findOne.mockReturnValue({
+  UserType.findOne.mockResolvedValue({ _id: 'user-type-student' });
+  Preset.findOne.mockReturnValue({
     sort: jest.fn().mockResolvedValue(null)
   });
 });
@@ -148,10 +160,13 @@ describe('Core workflow controller tests', () => {
 
   test('createProject rejects empty technology list', async () => {
     Project.findOne.mockResolvedValueOnce(null);
-    PhaseTemplate.findOne.mockReturnValueOnce({
-      sort: jest.fn().mockResolvedValue({
-        phases: [{ title: 'Phase A' }]
-      })
+    Preset.findOne.mockResolvedValueOnce({
+      _id: 'preset-1',
+      phases: [{ title: 'Phase A' }],
+      isActive: true
+    });
+    User.findById.mockResolvedValueOnce({
+      verificationStatus: 'verified'
     });
 
     const req = makeReq({

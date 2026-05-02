@@ -1,7 +1,7 @@
 const Project = require('../models/Project');
 const User = require('../models/User');
 const Notification = require('../models/Notification');
-const PhaseTemplate = require('../models/PhaseTemplate');
+const Preset = require('../models/Preset');
 const { sendProjectCompletionEmail } = require('../utils/sendEmail');
 const logger = require('../utils/logger');
 const { sanitizeText } = require('../utils/sanitize');
@@ -115,18 +115,25 @@ const buildProjectPhases = (phaseTitles) =>
   }));
 
 const getConfiguredPhaseTemplate = async () => {
-  const phaseTemplate = await PhaseTemplate.findOne().sort('-updatedAt');
-  const configuredTitles = normalizePhaseTitles(phaseTemplate?.phases || []);
+  const preset = await Preset.findOne({ isActive: true });
+  const configuredTitles = normalizePhaseTitles(preset?.phases || []);
   return configuredTitles;
 };
 
-// @desc    Get admin-managed project phase template
+// @desc    Get active preset phases
 // @route   GET /api/projects/phase-template
 // @access  Private
 exports.getPhaseTemplate = async (req, res) => {
   try {
-    const phaseTemplate = await PhaseTemplate.findOne().sort('-updatedAt').populate('updatedBy', 'name role');
-    const phases = normalizePhaseTitles(phaseTemplate?.phases || []).map((title, index) => ({
+    const preset = await Preset.findOne({ isActive: true });
+    if (!preset) {
+      return res.status(404).json({
+        success: false,
+        message: 'No active preset found'
+      });
+    }
+
+    const phases = normalizePhaseTitles(preset.phases || []).map((title, index) => ({
       order: index + 1,
       title
     }));
@@ -134,8 +141,8 @@ exports.getPhaseTemplate = async (req, res) => {
     res.status(200).json({
       success: true,
       phases,
-      updatedAt: phaseTemplate?.updatedAt || null,
-      updatedBy: phaseTemplate?.updatedBy || null
+      updatedAt: preset.updatedAt,
+      updatedBy: preset.updatedBy
     });
   } catch (error) {
     res.status(400).json({
@@ -145,7 +152,7 @@ exports.getPhaseTemplate = async (req, res) => {
   }
 };
 
-// @desc    Update admin-managed project phase template
+// @desc    Update active preset phases (backward compatibility)
 // @route   PUT /api/projects/phase-template
 // @access  Private (Admin)
 exports.updatePhaseTemplate = async (req, res) => {
@@ -169,38 +176,29 @@ exports.updatePhaseTemplate = async (req, res) => {
       });
     }
 
-    const updatedTemplate = await PhaseTemplate.findOneAndUpdate(
-      {},
-      {
-        $set: {
-          phases: normalizedTitles.map((title) => ({ title })),
-          updatedBy: req.user.id
-        },
-        $push: {
-          changeHistory: {
-            $each: [
-              buildAuditEntry({
-                userId: req.user.id,
-                action: 'phase_template_updated',
-                changes: `Configured ${normalizedTitles.length} phases`
-              })
-            ],
-            $slice: -MAX_AUDIT_ENTRIES
-          }
-        }
-      },
-      {
-        new: true,
-        upsert: true,
-        setDefaultsOnInsert: true
-      }
-    ).populate('updatedBy', 'name role');
+    const preset = await Preset.findOne({ isActive: true });
+    if (!preset) {
+      return res.status(404).json({
+        success: false,
+        message: 'No active preset found'
+      });
+    }
+
+    preset.phases = normalizedTitles.map((title) => ({ title }));
+    preset.updatedBy = req.user.id;
+    preset.changeHistory.push({
+      changedBy: req.user.id,
+      action: 'Updated',
+      changes: `Configured ${normalizedTitles.length} phases`
+    });
+
+    await preset.save();
 
     res.status(200).json({
       success: true,
       phases: normalizedTitles.map((title, index) => ({ order: index + 1, title })),
-      updatedAt: updatedTemplate.updatedAt,
-      updatedBy: updatedTemplate.updatedBy
+      updatedAt: preset.updatedAt,
+      updatedBy: preset.updatedBy
     });
   } catch (error) {
     res.status(400).json({
@@ -254,12 +252,31 @@ exports.createProject = async (req, res) => {
         });
       }
 
+      // Check if student is verified
+      const user = await withSession(User.findById(req.user.id), session);
+      if (user.verificationStatus !== 'verified') {
+        return res.status(400).json({
+          success: false,
+          message: 'You must be verified to create a project. Please complete email or ID card verification.'
+        });
+      }
+
+      // Get active preset
+      const activePreset = await withSession(Preset.findOne({ isActive: true }), session);
+      if (!activePreset) {
+        return res.status(400).json({
+          success: false,
+          message: 'No active preset configured'
+        });
+      }
+
       const projectData = {
         title: sanitizedTitle,
         description: sanitizedDescription,
         category: sanitizedCategory,
         technologies: parsedTechnologies,
         phases: buildProjectPhases(phaseTitles),
+        presetId: activePreset._id,
         teamMembers: [],
         student: req.user.id,
         updatedBy: req.user.id,
@@ -709,6 +726,11 @@ exports.adminApproval = async (req, res) => {
     project.adminStatus = status;
     if (status === 'approved') {
       project.status = 'in-progress';
+      // Create preset snapshot for approved projects
+      const preset = await Preset.findById(project.presetId);
+      if (preset) {
+        project.presetSnapshot = preset.phases;
+      }
     } else {
       project.status = 'rejected';
     }
@@ -1061,6 +1083,15 @@ exports.respondToTeamInvite = async (req, res) => {
     }
 
     if (status === 'accepted') {
+      // Check if student is verified
+      const user = await User.findById(req.user.id);
+      if (user.verificationStatus !== 'verified') {
+        return res.status(400).json({
+          success: false,
+          message: 'You must be verified to join a project team. Please complete email or ID card verification.'
+        });
+      }
+
       const alreadyActiveElsewhere = await isStudentInActiveProject(req.user.id, project._id);
       if (alreadyActiveElsewhere) {
         return res.status(400).json({
@@ -1570,6 +1601,184 @@ exports.reviewScreenRecording = async (req, res) => {
     res.status(200).json({
       success: true,
       message: `Screen recording ${status}`,
+      project
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: 'An error occurred. Please try again.'
+    });
+  }
+};
+
+// @desc    Pause project
+// @route   PUT /api/projects/:id/pause
+// @access  Private (Admin)
+exports.pauseProject = async (req, res) => {
+  try {
+    const project = await Project.findById(req.params.id);
+
+    if (!project) {
+      return res.status(404).json({
+        success: false,
+        message: 'Project not found'
+      });
+    }
+
+    if (project.status !== 'in-progress') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only in-progress projects can be paused'
+      });
+    }
+
+    project.status = 'paused';
+    project.isPaused = true;
+    project.pausedAt = new Date();
+    appendAuditEntry(project, {
+      userId: req.user.id,
+      action: 'project_paused',
+      changes: 'Project paused by admin'
+    });
+    await project.save();
+
+    // Notify team members
+    const notifications = [
+      createNotification(
+        project.student,
+        req.user.id,
+        'project_paused',
+        'Project Paused',
+        `Your project "${project.title}" has been paused`,
+        project._id
+      )
+    ];
+
+    if (project.supervisor) {
+      notifications.push(
+        createNotification(
+          project.supervisor,
+          req.user.id,
+          'project_paused',
+          'Project Paused',
+          `Project "${project.title}" has been paused`,
+          project._id
+        )
+      );
+    }
+
+    for (const member of project.teamMembers) {
+      if (member.inviteStatus === 'accepted') {
+        notifications.push(
+          createNotification(
+            member.student,
+            req.user.id,
+            'project_paused',
+            'Project Paused',
+            `Project "${project.title}" has been paused`,
+            project._id
+          )
+        );
+      }
+    }
+
+    await Promise.all(notifications);
+
+    res.status(200).json({
+      success: true,
+      message: 'Project paused successfully',
+      project
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: 'An error occurred. Please try again.'
+    });
+  }
+};
+
+// @desc    Reset project from beginning
+// @route   PUT /api/projects/:id/reset
+// @access  Private (Admin)
+exports.resetProject = async (req, res) => {
+  try {
+    const project = await Project.findById(req.params.id);
+
+    if (!project) {
+      return res.status(404).json({
+        success: false,
+        message: 'Project not found'
+      });
+    }
+
+    if (!['in-progress', 'paused'].includes(project.status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Only in-progress or paused projects can be reset'
+      });
+    }
+
+    // Reset phases
+    const phaseTitles = await getConfiguredPhaseTemplate();
+    project.phases = buildProjectPhases(phaseTitles);
+    project.progress = 0;
+    project.status = 'in-progress';
+    project.isPaused = false;
+    project.pausedAt = undefined;
+    project.resetAt = new Date();
+
+    appendAuditEntry(project, {
+      userId: req.user.id,
+      action: 'project_reset',
+      changes: 'Project reset to beginning by admin'
+    });
+    await project.save();
+
+    // Notify team members
+    const notifications = [
+      createNotification(
+        project.student,
+        req.user.id,
+        'project_reset',
+        'Project Reset',
+        `Your project "${project.title}" has been reset to the beginning`,
+        project._id
+      )
+    ];
+
+    if (project.supervisor) {
+      notifications.push(
+        createNotification(
+          project.supervisor,
+          req.user.id,
+          'project_reset',
+          'Project Reset',
+          `Project "${project.title}" has been reset to the beginning`,
+          project._id
+        )
+      );
+    }
+
+    for (const member of project.teamMembers) {
+      if (member.inviteStatus === 'accepted') {
+        notifications.push(
+          createNotification(
+            member.student,
+            req.user.id,
+            'project_reset',
+            'Project Reset',
+            `Project "${project.title}" has been reset to the beginning`,
+            project._id
+          )
+        );
+      }
+    }
+
+    await Promise.all(notifications);
+
+    res.status(200).json({
+      success: true,
+      message: 'Project reset successfully',
       project
     });
   } catch (error) {

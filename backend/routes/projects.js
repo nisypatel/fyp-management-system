@@ -19,7 +19,9 @@ const {
   submitPhase,
   evaluatePhase,
   uploadScreenRecording,
-  reviewScreenRecording
+  reviewScreenRecording,
+  pauseProject,
+  resetProject
 } = require('../controllers/projectController');
 const { protect, authorize } = require('../middleware/auth');
 const { upload, uploadVideo, phaseUpload, handleMulterError } = require('../middleware/upload');
@@ -70,6 +72,8 @@ router.post('/:id/documents', protect, objectIdRule('id', 'Project id'), validat
 router.post('/:id/screen-recording', protect, authorize('student'), objectIdRule('id', 'Project id'), validateRequest, uploadVideo.single('screenRecording'), handleMulterError, uploadScreenRecording);
 router.put('/:id/screen-recording/review', protect, authorize('faculty', 'admin'), reviewScreenRecordingValidation, validateRequest, reviewScreenRecording);
 router.put('/:id/progress', protect, authorize('faculty'), updateProgressValidation, validateRequest, updateProgress);
+router.put('/:id/pause', protect, authorize('admin'), objectIdRule('id', 'Project id'), validateRequest, pauseProject);
+router.put('/:id/reset', protect, authorize('admin'), objectIdRule('id', 'Project id'), validateRequest, resetProject);
 
 // Phases routes
 router.put(

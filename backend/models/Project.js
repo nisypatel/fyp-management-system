@@ -79,9 +79,30 @@ const projectSchema = new mongoose.Schema({
   }],
   status: {
     type: String,
-    enum: ['proposal', 'in-progress', 'completed', 'rejected'],
+    enum: ['proposal', 'in-progress', 'completed', 'rejected', 'paused'],
     default: 'proposal'
   },
+  presetId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Preset',
+    required: true
+  },
+  presetSnapshot: {
+    type: [{
+      title: {
+        type: String,
+        trim: true,
+        maxlength: [100, 'Phase title cannot exceed 100 characters']
+      }
+    }],
+    default: []
+  },
+  isPaused: {
+    type: Boolean,
+    default: false
+  },
+  pausedAt: Date,
+  resetAt: Date,
   codeReview: {
     screenRecording: {
       filename: String,

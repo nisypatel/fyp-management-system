@@ -6,6 +6,7 @@ import { toast } from 'react-toastify';
 import { FiUsers, FiFolder, FiCheckCircle, FiClock, FiPlus, FiEdit, FiTrash } from 'react-icons/fi';
 import { userService } from '../services/userService';
 import { projectService } from '../services/projectService';
+import { presetService } from '../services/presetService';
 import usePageTitle from '../hooks/usePageTitle';
 import Navbar from '../components/Navbar';
 import DashboardHeader from '../components/ui/DashboardHeader';
@@ -58,6 +59,15 @@ const AdminDashboard = () => {
   const [phaseTemplate, setPhaseTemplate] = useState([]);
   const [phaseTemplateLoading, setPhaseTemplateLoading] = useState(false);
   const [savingPhaseTemplate, setSavingPhaseTemplate] = useState(false);
+  const [presets, setPresets] = useState([]);
+  const [pendingVerifications, setPendingVerifications] = useState([]);
+  const [verificationDomain, setVerificationDomain] = useState('');
+  const [savingVerificationDomain, setSavingVerificationDomain] = useState(false);
+  const [showPresetModal, setShowPresetModal] = useState(false);
+  const [presetName, setPresetName] = useState('');
+  const [presetPhases, setPresetPhases] = useState([createPhaseRow('Phase 1')]);
+  const [presetSaving, setPresetSaving] = useState(false);
+  const [editingPreset, setEditingPreset] = useState(null);
 
   // Pagination state
   const [projectsPagination, setProjectsPagination] = useState({
@@ -127,6 +137,16 @@ const AdminDashboard = () => {
         const rows = (response.phases || []).map((phase) => createPhaseRow(phase.title));
         setPhaseTemplate(rows.length ? rows : [createPhaseRow('Phase 1')]);
         setPhaseTemplateLoading(false);
+      } else if (activeTab === 'presets') {
+        const presetsData = await presetService.getPresets();
+        setPresets(presetsData);
+      } else if (activeTab === 'verification') {
+        const [verifications, verificationConfig] = await Promise.all([
+          userService.getPendingVerifications(),
+          userService.getVerificationConfig()
+        ]);
+        setPendingVerifications(verifications);
+        setVerificationDomain(verificationConfig.verificationDomain || '');
       }
     } catch (error) {
       if (activeTab === 'phases') {
@@ -236,6 +256,88 @@ const AdminDashboard = () => {
       employeeId: '',
       phone: ''
     });
+  };
+
+  const openPresetModal = () => {
+    setEditingPreset(null);
+    setPresetName('');
+    setPresetPhases([createPhaseRow('Phase 1')]);
+    setShowPresetModal(true);
+  };
+
+  const openPresetViewModal = (preset) => {
+    setEditingPreset(preset);
+    setPresetName(preset.name);
+    setPresetPhases(
+      (preset.phases || []).map((phase, index) =>
+        createPhaseRow(phase.title || `Phase ${index + 1}`)
+      )
+    );
+    setShowPresetModal(true);
+  };
+
+  const closePresetModal = () => {
+    setEditingPreset(null);
+    setShowPresetModal(false);
+  };
+
+  const addPresetPhaseRow = () => {
+    setPresetPhases(prev => [...prev, createPhaseRow(`Phase ${prev.length + 1}`)]);
+  };
+
+  const removePresetPhaseRow = (id) => {
+    if (presetPhases.length <= 1) return;
+    setPresetPhases(prev => prev.filter((phase) => phase.id !== id));
+  };
+
+  const movePresetPhaseRow = (id, direction) => {
+    setPresetPhases((prev) => {
+      const index = prev.findIndex((phase) => phase.id === id);
+      if (index === -1) return prev;
+      const targetIndex = index + direction;
+      if (targetIndex < 0 || targetIndex >= prev.length) return prev;
+      const next = [...prev];
+      [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+      return next;
+    });
+  };
+
+  const handlePresetPhaseChange = (id, value) => {
+    setPresetPhases(prev => prev.map((phase) => (phase.id === id ? { ...phase, title: value } : phase)));
+  };
+
+  const handleSavePreset = async (e) => {
+    e.preventDefault();
+    if (!presetName.trim()) {
+      toast.error('Preset name is required');
+      return;
+    }
+
+    setPresetSaving(true);
+    try {
+      const payload = {
+        name: presetName.trim(),
+        phases: presetPhases.map((phase) => ({ title: phase.title || 'Untitled Phase' }))
+      };
+
+      if (editingPreset) {
+        await presetService.updatePreset(editingPreset._id, payload);
+        toast.success('Preset updated successfully');
+      } else {
+        await presetService.createPreset(payload);
+        toast.success('Preset created successfully');
+      }
+
+      setShowPresetModal(false);
+      setEditingPreset(null);
+      setPresetName('');
+      setPresetPhases([createPhaseRow('Phase 1')]);
+      fetchDashboardData();
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to save preset');
+    } finally {
+      setPresetSaving(false);
+    }
   };
 
   // Pagination handlers
@@ -367,6 +469,64 @@ const AdminDashboard = () => {
     setSavingPhaseTemplate(false);
   };
 
+  // Preset handlers
+  const handleActivatePreset = async (presetId) => {
+    try {
+      await presetService.activatePreset(presetId);
+      toast.success('Preset activated successfully');
+      // Refresh presets
+      const updatedPresets = await presetService.getPresets();
+      setPresets(updatedPresets);
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Error activating preset');
+    }
+  };
+
+  const handleDeletePreset = async (presetId) => {
+    if (!window.confirm('Are you sure you want to delete this preset?')) return;
+    
+    try {
+      await presetService.deletePreset(presetId);
+      toast.success('Preset deleted successfully');
+      // Refresh presets
+      const updatedPresets = await presetService.getPresets();
+      setPresets(updatedPresets);
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Error deleting preset');
+    }
+  };
+
+  // Verification handlers
+  const handleReviewVerification = async (userId, status, notes) => {
+    try {
+      await userService.reviewIDCardVerification(userId, status, notes);
+      toast.success(`Verification ${status} successfully`);
+      // Refresh pending verifications
+      const updatedVerifications = await userService.getPendingVerifications();
+      setPendingVerifications(updatedVerifications);
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Error reviewing verification');
+    }
+  };
+
+  const handleSaveVerificationDomain = async () => {
+    if (!verificationDomain.trim()) {
+      toast.error('Please enter a verification domain');
+      return;
+    }
+
+    try {
+      setSavingVerificationDomain(true);
+      const response = await userService.updateVerificationConfig(verificationDomain.trim());
+      setVerificationDomain(response.verificationDomain || verificationDomain.trim());
+      toast.success('Verification domain updated successfully');
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to update verification domain');
+    } finally {
+      setSavingVerificationDomain(false);
+    }
+  };
+
   return (
     <>
       <Navbar />
@@ -423,6 +583,18 @@ const AdminDashboard = () => {
                   onClick={() => setActiveTab('phases')}
                 >
                   Phase Template
+                </button>
+                <button
+                  className={`btn ${activeTab === 'presets' ? 'btn-primary' : 'btn-outline'}`}
+                  onClick={() => setActiveTab('presets')}
+                >
+                  Presets
+                </button>
+                <button
+                  className={`btn ${activeTab === 'verification' ? 'btn-primary' : 'btn-outline'}`}
+                  onClick={() => setActiveTab('verification')}
+                >
+                  Verification
                 </button>
               </div>
               {activeTab === 'users' && (
@@ -551,7 +723,7 @@ const AdminDashboard = () => {
                         <th>Category</th>
                         <th>Status</th>
                         <th>Admin Status</th>
-                        <th>Actions</th>
+                        <th className="action-cell">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -583,32 +755,32 @@ const AdminDashboard = () => {
                           <td>
                             <StatusBadge status={project.adminStatus} />
                           </td>
-                          <td>
-                            <div className="flex gap-1" style={{ flexWrap: 'nowrap' }}>
+                          <td className="action-cell">
+                            <div className="action-group">
                               {project.adminStatus === 'pending' && (
                                 <>
                                   <button
-                                    style={{ whiteSpace: 'nowrap' }}
                                     className="btn btn-sm btn-success"
                                     onClick={() => handleProjectApproval(project._id, 'approved')}
                                     disabled={loading}
+                                    style={{ minWidth: '70px' }}
                                   >
                                     Approve
                                   </button>
                                   <button
-                                    style={{ whiteSpace: 'nowrap' }}
                                     className="btn btn-sm btn-danger"
                                     onClick={() => handleProjectApproval(project._id, 'rejected')}
                                     disabled={loading}
+                                    style={{ minWidth: '60px' }}
                                   >
                                     Reject
                                   </button>
                                 </>
                               )}
                               <button
-                                style={{ whiteSpace: 'nowrap' }}
                                 className="btn btn-sm btn-outline"
                                 onClick={() => navigate(`/project/${project._id}`)}
+                                style={{ minWidth: '50px' }}
                               >
                                 View
                               </button>
@@ -662,7 +834,7 @@ const AdminDashboard = () => {
                         <th>Department</th>
                         <th>ID Number</th>
                         <th>Status</th>
-                        <th>Actions</th>
+                        <th className="action-cell">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -686,17 +858,19 @@ const AdminDashboard = () => {
                               {user.isActive ? 'Active' : 'Inactive'}
                             </span>
                           </td>
-                          <td>
-                            <div className="flex gap-1" style={{ flexWrap: 'nowrap' }}>
+                          <td style={{ width: '120px', textAlign: 'right' }}>
+                            <div className="flex" style={{ gap: '0.25rem', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                               <button
                                 className="btn btn-sm btn-outline"
                                 onClick={() => handleEditUser(user)}
+                                style={{ minWidth: '32px', padding: '0.25rem' }}
                               >
                                 <FiEdit />
                               </button>
                               <button
                                 className="btn btn-sm btn-danger"
                                 onClick={() => handleDeleteUser(user)}
+                                style={{ minWidth: '32px', padding: '0.25rem' }}
                               >
                                 <FiTrash />
                               </button>
@@ -784,10 +958,261 @@ const AdminDashboard = () => {
                 </div>
               </div>
             )}
+
+            {activeTab === 'presets' && (
+              <div className="card" style={{ border: '1px solid #e5e7eb' }}>
+                <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <h3 style={{ margin: 0 }}>Project Presets</h3>
+                  <button className="btn btn-primary" onClick={openPresetModal}>
+                    Create Preset
+                  </button>
+                </div>
+                <div className="card-body">
+                  <p className="text-secondary" style={{ marginTop: 0 }}>
+                    Manage project presets. At least one preset must be active. New projects use the active preset.
+                  </p>
+                  <div className="table-responsive">
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th>Name</th>
+                          <th>Phases</th>
+                          <th>Status</th>
+                          <th>Created</th>
+                          <th className="action-cell">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {presets.map((preset) => (
+                          <tr key={preset._id}>
+                            <td>{preset.name}</td>
+                            <td>{preset.phases?.length || 0} phases</td>
+                            <td>
+                              <StatusBadge status={preset.isActive ? 'active' : 'inactive'} />
+                            </td>
+                            <td>{new Date(preset.createdAt).toLocaleDateString()}</td>
+                            <td className="action-cell">
+                              <div className="action-group">
+                                <button
+                                  type="button"
+                                  className="btn btn-sm btn-outline"
+                                  onClick={() => openPresetViewModal(preset)}
+                                  style={{ minWidth: '60px' }}
+                                >
+                                  View
+                                </button>
+                                {!preset.isActive && (
+                                  <button
+                                    className="btn btn-sm btn-success"
+                                    onClick={() => handleActivatePreset(preset._id)}
+                                    style={{ minWidth: '80px' }}
+                                  >
+                                    Activate
+                                  </button>
+                                )}
+                                <button
+                                  className="btn btn-sm btn-danger"
+                                  onClick={() => handleDeletePreset(preset._id)}
+                                  disabled={presets.length <= 1}
+                                  style={{ minWidth: '70px' }}
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'verification' && (
+              <div className="card" style={{ border: '1px solid #e5e7eb' }}>
+                <div className="card-header">
+                  <h3 style={{ margin: 0 }}>Student Verification Queue</h3>
+                </div>
+                <div className="card-body">
+                  <p className="text-secondary" style={{ marginTop: 0 }}>
+                    Review ID card verification requests from students.
+                  </p>
+                  <div style={{
+                    marginBottom: '1rem',
+                    padding: '1rem',
+                    border: '1px solid #dbe3ef',
+                    borderRadius: '12px',
+                    background: 'linear-gradient(180deg, #f8fbff 0%, #ffffff 100%)'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+                      <div>
+                        <label className="form-label" style={{ margin: 0, fontWeight: 700 }}>College Email Domain</label>
+                        <p className="text-secondary" style={{ margin: '0.35rem 0 0', fontSize: '0.9rem' }}>
+                          Students enter only the part before @. We append this domain automatically.
+                        </p>
+                      </div>
+                      <div style={{ fontSize: '0.9rem', color: '#64748b', alignSelf: 'flex-start' }}>
+                        Preview: <strong>{`student.name@${verificationDomain || 'college.edu'}`}</strong>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                      <span style={{ color: '#64748b', fontWeight: 700, padding: '0.7rem 0.9rem', border: '1px solid #dbe3ef', borderRadius: '10px', background: '#f8fafc' }}>@</span>
+                      <input
+                        type="text"
+                        className="form-input"
+                        value={verificationDomain}
+                        onChange={(e) => setVerificationDomain(e.target.value.replace(/^@+/, '').trim())}
+                        placeholder="college.edu"
+                        style={{ maxWidth: '320px', flex: '1 1 280px' }}
+                      />
+                      <button
+                        className="btn btn-primary"
+                        onClick={handleSaveVerificationDomain}
+                        disabled={savingVerificationDomain}
+                      >
+                        {savingVerificationDomain ? 'Saving...' : 'Save Domain'}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="table-responsive">
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th>Student</th>
+                          <th>Email</th>
+                          <th>Enrollment</th>
+                          <th>Status</th>
+                          <th>Submitted</th>
+                          <th className="action-cell">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pendingVerifications.map((user) => (
+                          <tr key={user._id}>
+                            <td>{user.name}</td>
+                            <td>{user.email}</td>
+                            <td>{user.enrollmentNumber}</td>
+                            <td>
+                              <StatusBadge status={user.verificationStatus} />
+                            </td>
+                            <td>{user.idCardFile ? new Date(user.idCardFile.uploadedAt).toLocaleDateString() : 'N/A'}</td>
+                            <td className="action-cell">
+                              <div className="action-group">
+                                {user.idCardFile && (
+                                  <button
+                                    className="btn btn-sm btn-outline"
+                                    onClick={() => window.open(`/api/files/download/${user.idCardFile.filename}`, '_blank')}
+                                    style={{ minWidth: '60px' }}
+                                  >
+                                    View ID
+                                  </button>
+                                )}
+                                <button
+                                  className="btn btn-sm btn-success"
+                                  onClick={() => handleReviewVerification(user._id, 'verified', 'Approved by admin')}
+                                  style={{ minWidth: '70px' }}
+                                >
+                                  Approve
+                                </button>
+                                <button
+                                  className="btn btn-sm btn-danger"
+                                  onClick={() => handleReviewVerification(user._id, 'rejected', 'Rejected by admin')}
+                                  style={{ minWidth: '60px' }}
+                                >
+                                  Reject
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
         {/* User Modal */}
+        {showPresetModal && (
+          <div className="modal-overlay" onClick={() => { closePresetModal(); }}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <h2 className="modal-title">{editingPreset ? 'View / Edit Preset' : 'Create New Preset'}</h2>
+                <button className="modal-close" onClick={() => { closePresetModal(); }}>
+                  ×
+                </button>
+              </div>
+              <div className="modal-body">
+                <form onSubmit={handleSavePreset}>
+                  <div className="form-group">
+                    <label className="form-label">Preset Name *</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={presetName}
+                      onChange={(e) => setPresetName(e.target.value)}
+                      required
+                    />
+                  </div>
+
+                  {presetPhases.map((phase, index) => (
+                    <div className="form-group" key={phase.id}>
+                      <label className="form-label">Phase Title</label>
+                      <div className="flex gap-2" style={{ alignItems: 'center' }}>
+                        <input
+                          type="text"
+                          className="form-input"
+                          value={phase.title}
+                          onChange={(e) => handlePresetPhaseChange(phase.id, e.target.value)}
+                          required
+                        />
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline"
+                          onClick={() => movePresetPhaseRow(phase.id, -1)}
+                          disabled={index === 0}
+                          title="Move up"
+                        >
+                          ↑
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline"
+                          onClick={() => movePresetPhaseRow(phase.id, 1)}
+                          disabled={index === presetPhases.length - 1}
+                          title="Move down"
+                        >
+                          ↓
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-outline"
+                          onClick={() => removePresetPhaseRow(phase.id)}
+                          disabled={presetPhases.length <= 1}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+
+                  <div className="flex gap-2" style={{ marginTop: '16px' }}>
+                    <button type="button" className="btn btn-outline" onClick={addPresetPhaseRow}>
+                      Add Phase
+                    </button>
+                    <button type="submit" className="btn btn-primary" disabled={presetSaving}>
+                      {presetSaving ? 'Saving...' : editingPreset ? 'Update Preset' : 'Create Preset'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        )}
+
         {showUserModal && (
           <div className="modal-overlay" onClick={() => { setShowUserModal(false); resetUserForm(); }}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>

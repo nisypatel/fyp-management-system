@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const logger = require('../utils/logger');
+const { migrateSchema } = require('../utils/schemaMigration');
 
 const migrateLegacyCollections = async (db) => {
   const collections = await db.listCollections({}, { nameOnly: true }).toArray();
@@ -36,6 +37,7 @@ const connectDB = async () => {
     });
 
     await migrateLegacyCollections(conn.connection.db);
+    await migrateSchema();
 
     logger.info(`MongoDB Connected: ${conn.connection.host}`);
     

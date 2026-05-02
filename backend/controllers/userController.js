@@ -1,8 +1,25 @@
 const User = require('../models/User');
+const UserType = require('../models/UserType');
+const SystemSetting = require('../models/SystemSetting');
 const Project = require('../models/Project');
 const Notification = require('../models/Notification');
 const { normalizeRole } = require('../utils/role');
 const { appendAuditEntry, buildAuditEntry } = require('../utils/auditTrail');
+const { sendEmail } = require('../utils/sendEmail');
+
+const VERIFICATION_DOMAIN_KEY = 'verification_email_domain';
+
+const normalizeDomain = (domain = '') => String(domain).trim().toLowerCase().replace(/^@+/, '');
+
+const getVerificationDomain = async () => {
+  const setting = await SystemSetting.findOne({ key: VERIFICATION_DOMAIN_KEY }).lean();
+  return normalizeDomain(setting?.value || process.env.COLLEGE_EMAIL_DOMAIN || '');
+};
+
+const getLocalPartFromEmail = (email = '') => {
+  const [localPart] = String(email).split('@');
+  return (localPart || '').trim().toLowerCase();
+};
 
 // @desc    Get all users
 // @route   GET /api/users
@@ -245,6 +262,11 @@ exports.createUser = async (req, res) => {
         })
       ]
     };
+
+    const roleType = await UserType.findOne({ key: normalizedRole });
+    if (roleType) {
+      userData.roleType = roleType._id;
+    }
 
     if (normalizedRole === 'student') {
       userData.department = department;
@@ -583,6 +605,390 @@ exports.getDashboardStats = async (req, res) => {
     res.status(200).json({
       success: true,
       stats
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: 'An error occurred. Please try again.'
+    });
+  }
+};
+
+// @desc    Request OTP verification
+// @route   POST /api/users/verification/otp
+// @access  Private (Student)
+exports.requestOTPVerification = async (req, res) => {
+  try {
+    const { emailLocalPart } = req.body;
+    const user = await User.findById(req.user.id);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    if (user.verificationStatus === 'verified') {
+      return res.status(200).json({
+        success: true,
+        message: 'User already verified',
+        verificationStatus: 'verified'
+      });
+    }
+
+    const verificationDomain = await getVerificationDomain();
+    if (!verificationDomain) {
+      return res.status(400).json({
+        success: false,
+        message: 'Verification email domain is not configured by admin yet'
+      });
+    }
+
+    const normalizedLocalPart = String(emailLocalPart || '').trim().toLowerCase();
+    const localPartRegex = /^[a-z0-9._%+-]+$/i;
+    if (!normalizedLocalPart || !localPartRegex.test(normalizedLocalPart)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please enter a valid college email username'
+      });
+    }
+
+    const verificationEmail = `${normalizedLocalPart}@${verificationDomain}`;
+
+    // Generate or re-generate OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
+
+    user.verificationStatus = 'otp_pending';
+    user.verificationMethod = 'otp';
+    user.verificationEmail = verificationEmail;
+    user.otpToken = otp;
+    user.otpExpires = otpExpires;
+    user.verificationAudit.push({
+      action: 'otp_requested',
+      performedBy: req.user.id,
+      timestamp: new Date(),
+      notes: `OTP requested for ${verificationEmail}`
+    });
+
+    await user.save();
+
+    try {
+      await sendEmail({
+        email: verificationEmail,
+        subject: 'Your FYP verification OTP',
+        message: `Your OTP is ${otp}. It expires in 10 minutes.`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 16px;">
+            <h2 style="color: #0f4c81; margin: 0 0 12px;">FYP Account Verification</h2>
+            <p style="margin: 0 0 10px;">Use this OTP to verify your student account:</p>
+            <p style="font-size: 28px; letter-spacing: 2px; font-weight: 700; margin: 8px 0 16px;">${otp}</p>
+            <p style="margin: 0; color: #555;">This code expires in 10 minutes.</p>
+          </div>
+        `
+      });
+    } catch (err) {
+      return res.status(500).json({
+        success: false,
+        message: 'OTP could not be sent. Please try again.'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'OTP sent to your educational email',
+      verificationStatus: 'otp_pending',
+      verificationDomain,
+      verificationEmail,
+      expiresIn: '10 minutes'
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: 'An error occurred. Please try again.'
+    });
+  }
+};
+
+// @desc    Confirm OTP verification
+// @route   POST /api/users/verification/otp/confirm
+// @access  Private (Student)
+exports.confirmOTPVerification = async (req, res) => {
+  try {
+    const { otp } = req.body;
+
+    const user = await User.findById(req.user.id);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    if (user.verificationStatus === 'verified') {
+      return res.status(200).json({
+        success: true,
+        message: 'User already verified',
+        verificationStatus: 'verified'
+      });
+    }
+
+    if (user.verificationStatus !== 'otp_pending') {
+      return res.status(400).json({
+        success: false,
+        message: 'No pending OTP verification'
+      });
+    }
+
+    if (!user.otpToken || user.otpExpires < Date.now()) {
+      return res.status(400).json({
+        success: false,
+        message: 'OTP has expired'
+      });
+    }
+
+    if (user.otpToken !== otp) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid OTP'
+      });
+    }
+
+    user.verificationStatus = 'verified';
+    user.verificationMethod = 'otp';
+    user.otpToken = undefined;
+    user.otpExpires = undefined;
+    user.verificationAudit.push({
+      action: 'otp_verified',
+      performedBy: req.user.id,
+      timestamp: new Date(),
+      notes: 'OTP verification successful'
+    });
+
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Email verification successful',
+      verificationStatus: 'verified'
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: 'An error occurred. Please try again.'
+    });
+  }
+};
+
+// @desc    Upload ID card for verification
+// @route   POST /api/users/verification/id-card
+// @access  Private (Student)
+exports.uploadIDCard = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID card file is required'
+      });
+    }
+
+    const user = await User.findById(req.user.id);
+
+    if (user.verificationStatus === 'verified') {
+      return res.status(400).json({
+        success: false,
+        message: 'User is already verified'
+      });
+    }
+
+    user.verificationStatus = 'id_pending';
+    user.verificationMethod = 'id_card';
+    user.idCardFile = {
+      filename: req.file.filename,
+      originalName: req.file.originalname,
+      path: req.file.path,
+      size: req.file.size,
+      uploadedAt: new Date()
+    };
+    user.verificationAudit.push({
+      action: 'id_card_uploaded',
+      performedBy: req.user.id,
+      timestamp: new Date(),
+      notes: 'ID card uploaded for verification'
+    });
+
+    await user.save();
+
+    // Notify admins
+    const admins = await User.find({ role: 'admin' });
+    const notifications = admins.map(admin =>
+      Notification.create({
+        recipient: admin._id,
+        sender: req.user.id,
+        type: 'verification_pending',
+        title: 'ID Card Verification Pending',
+        message: `${user.name} has uploaded an ID card for verification`,
+        relatedUser: user._id
+      })
+    );
+
+    await Promise.all(notifications);
+
+    res.status(200).json({
+      success: true,
+      message: 'ID card uploaded successfully. Awaiting admin review.'
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: 'An error occurred. Please try again.'
+    });
+  }
+};
+
+// @desc    Get pending ID card verifications
+// @route   GET /api/users/verification/pending
+// @access  Private (Admin)
+exports.getPendingVerifications = async (req, res) => {
+  try {
+    const users = await User.find({
+      verificationStatus: 'id_pending'
+    }).select('name email verificationMethod idCardFile verificationAudit createdAt');
+
+    res.status(200).json({
+      success: true,
+      count: users.length,
+      data: users
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: 'An error occurred. Please try again.'
+    });
+  }
+};
+
+// @desc    Get verification config and student verification state
+// @route   GET /api/users/verification/config
+// @access  Private
+exports.getVerificationConfig = async (req, res) => {
+  try {
+    const verificationDomain = await getVerificationDomain();
+
+    if (req.user.role === 'student') {
+      const user = await User.findById(req.user.id).select('verificationStatus verificationEmail verificationMethod');
+      return res.status(200).json({
+        success: true,
+        verificationDomain,
+        verificationStatus: user?.verificationStatus || 'unverified',
+        verificationMethod: user?.verificationMethod || null,
+        verificationEmail: user?.verificationEmail || null,
+        emailLocalPart: getLocalPartFromEmail(user?.verificationEmail)
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      verificationDomain
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: 'An error occurred. Please try again.'
+    });
+  }
+};
+
+// @desc    Update verification email domain
+// @route   PUT /api/users/verification/config
+// @access  Private (Admin)
+exports.updateVerificationConfig = async (req, res) => {
+  try {
+    const domain = normalizeDomain(req.body.verificationDomain || '');
+    const domainRegex = /^[a-z0-9.-]+\.[a-z]{2,}$/i;
+
+    if (!domain || !domainRegex.test(domain)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a valid domain (example: college.edu)'
+      });
+    }
+
+    await SystemSetting.findOneAndUpdate(
+      { key: VERIFICATION_DOMAIN_KEY },
+      {
+        key: VERIFICATION_DOMAIN_KEY,
+        value: domain,
+        updatedBy: req.user.id
+      },
+      {
+        upsert: true,
+        new: true,
+        setDefaultsOnInsert: true
+      }
+    );
+
+    res.status(200).json({
+      success: true,
+      verificationDomain: domain,
+      message: 'Verification domain updated successfully'
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: 'An error occurred. Please try again.'
+    });
+  }
+};
+
+// @desc    Review ID card verification
+// @route   PUT /api/users/:id/verification/review
+// @access  Private (Admin)
+exports.reviewIDCardVerification = async (req, res) => {
+  try {
+    const { status, notes } = req.body; // 'verified' or 'rejected'
+
+    const user = await User.findById(req.params.id);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    if (user.verificationStatus !== 'id_pending') {
+      return res.status(400).json({
+        success: false,
+        message: 'No pending ID card verification for this user'
+      });
+    }
+
+    user.verificationStatus = status === 'verified' ? 'verified' : 'rejected';
+    user.verificationAudit.push({
+      action: status === 'verified' ? 'id_card_approved' : 'id_card_rejected',
+      performedBy: req.user.id,
+      timestamp: new Date(),
+      notes: notes || `${status === 'verified' ? 'Approved' : 'Rejected'} by admin`
+    });
+
+    await user.save();
+
+    // Notify user
+    await Notification.create({
+      recipient: user._id,
+      sender: req.user.id,
+      type: 'verification_result',
+      title: `ID Card Verification ${status === 'verified' ? 'Approved' : 'Rejected'}`,
+      message: `Your ID card verification has been ${status === 'verified' ? 'approved' : 'rejected'}. ${notes || ''}`,
+      relatedUser: user._id
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `ID card verification ${status}`
     });
   } catch (error) {
     res.status(400).json({

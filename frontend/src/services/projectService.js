@@ -72,12 +72,38 @@ export const projectService = {
   },
 
   async getPhaseTemplate() {
-    const response = await apiClient.get('/projects/phase-template');
-    return response.data;
+    try {
+      const response = await apiClient.get('/presets/active');
+      return {
+        phases: response.data.data.phases.map((phase, index) => ({
+          order: index + 1,
+          title: phase.title
+        })),
+        updatedAt: response.data.data.updatedAt,
+        updatedBy: response.data.data.updatedBy
+      };
+    } catch (error) {
+      if (error.response?.status === 404) {
+        return {
+          phases: [],
+          updatedAt: null,
+          updatedBy: null
+        };
+      }
+      throw error;
+    }
   },
 
   async updatePhaseTemplate(phases) {
     const response = await apiClient.put('/projects/phase-template', { phases });
     return response.data;
+  },
+
+  async pauseProject(projectId) {
+    await apiClient.put(`/projects/${projectId}/pause`);
+  },
+
+  async resetProject(projectId) {
+    await apiClient.put(`/projects/${projectId}/reset`);
   }
 };

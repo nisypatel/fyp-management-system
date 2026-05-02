@@ -1,0 +1,49 @@
+===============================================
+FYP-2 PROJECT: RRR-2 IMPLEMENTATION PLAN
+===============================================
+Date: April 27, 2026
+Status: IN PROGRESS
+
+MANDATORY FEATURES REQUESTED:
+1) Rename and redesign phase templates as preset system
+2) Preset lifecycle: create, edit, delete, choose active preset
+3) Minimum 1 preset must always exist
+4) Existing approved projects keep original preset snapshot; changes apply only to new projects
+5) Add team-level pause and reset/restart-from-beginning project controls
+6) Add student identity verification with two modes:
+   a) OTP via educational email
+   b) College ID card upload with manual review
+7) Restrict project participation to verified students only
+
+ADDITIONAL HARDENING TO INCLUDE:
+A) Explicit project state fields for paused/reset to keep workflow deterministic
+B) Verification status tracking and audit history fields
+C) Admin queue for manual ID-verification approvals/rejections
+D) API validation and role-protection for new endpoints
+E) Frontend UX updates for admin + student workflows
+
+IMPLEMENTATION PHASES:
+PHASE 1: Data model updates
+- Add Preset model with phases, isActive, audit fields
+- Add preset/snapshot fields on Project
+- Add verification fields on User
+
+PHASE 2: Backend controllers and routes
+- Preset CRUD + active preset selection
+- Project pause/reset endpoints
+- Verification OTP request/confirm endpoints
+- ID card upload + admin review endpoints
+- Enforce verified student checks in project creation and team invite acceptance
+
+PHASE 3: Frontend updates
+- Admin: Presets tab with CRUD, active picker, min-1 safeguard
+- Admin: Verification review queue for ID-card requests
+- Admin: Pause/Reset actions in project details/dashboard
+- Student: Verification panel (email OTP + ID card path)
+
+PHASE 4: Validation and regression checks
+- Run backend tests
+- Run frontend build
+- Fix compile/runtime issues
+
+===============================================

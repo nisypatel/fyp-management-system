@@ -111,6 +111,28 @@ const phaseUpload = multer({
   fileFilter: phaseFileFilter
 });
 
+// File filter for ID cards (images only)
+const idCardFileFilter = (req, file, cb) => {
+  const imageExtensions = new Set(['.jpg', '.jpeg', '.png']);
+  const imageMimeTypes = new Set(['image/jpeg', 'image/png']);
+
+  const ext = path.extname(file.originalname || '').toLowerCase();
+  if (imageExtensions.has(ext) && imageMimeTypes.has((file.mimetype || '').toLowerCase())) {
+    return cb(null, true);
+  } else {
+    cb(new Error('Invalid file type. Only JPG, JPEG, PNG images are allowed for ID cards.'));
+  }
+};
+
+// Multer upload configuration for ID cards
+const uploadIDCard = multer({
+  storage: storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB
+  },
+  fileFilter: idCardFileFilter
+});
+
 // Error handling middleware for multer
 const handleMulterError = (err, req, res, next) => {
   if (err instanceof multer.MulterError) {
@@ -140,4 +162,4 @@ const handleMulterError = (err, req, res, next) => {
   next();
 };
 
-module.exports = { upload, uploadVideo, phaseUpload, handleMulterError };
+module.exports = { upload, uploadVideo, phaseUpload, uploadIDCard, handleMulterError };

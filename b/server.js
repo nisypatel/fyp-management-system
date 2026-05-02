@@ -3,11 +3,14 @@ const dotenv = require('dotenv');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const connectDB = require('./config/db');
-const bootstrapDatabase = require('./config/bootstrapDb');
 const errorHandler = require('./middleware/error');
+const logger = require('./utils/logger');
 
 // Load env vars
 dotenv.config();
+
+// Connect to database
+connectDB();
 
 const app = express();
 
@@ -30,6 +33,7 @@ app.use('/api/projects', require('./routes/projects'));
 app.use('/api/users', require('./routes/users'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/files', require('./routes/files'));
+app.use('/api/presets', require('./routes/presets'));
 
 // Health check route
 app.get('/api/health', (req, res) => {
@@ -42,25 +46,31 @@ app.get('/api/health', (req, res) => {
 // Error handler middleware (must be last)
 app.use(errorHandler);
 
-const startServer = async () => {
-  await connectDB();
-  await bootstrapDatabase();
-
+const startServer = () => {
   const PORT = process.env.PORT || 5000;
   const server = app.listen(PORT, () => {
-    console.log(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
+    logger.info(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
   });
 
-  // Handle unhandled promise rejections
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      logger.error(`Port ${PORT} is already in use. Please stop the existing server or change PORT in your environment.`);
+    } else {
+      logger.error('Server error', { message: err.message, stack: err.stack });
+    }
+    process.exit(1);
+  });
+
   process.on('unhandledRejection', (err) => {
-    console.log(`Error: ${err.message}`);
+    logger.error('Unhandled rejection', { message: err.message, stack: err.stack });
     server.close(() => process.exit(1));
   });
 
   return server;
 };
 
-startServer().catch((error) => {
-  console.error(`Failed to start server: ${error.message}`);
-  process.exit(1);
-});
+if (require.main === module) {
+  startServer();
+}
+
+module.exports = app;

@@ -8,11 +8,8 @@ const connectDB = async () => {
     });
 
     console.log(`MongoDB Connected: ${conn.connection.host}`);
-    
-    // Create indexes for better query performance
-    mongoose.connection.on('connected', () => {
-      console.log('MongoDB indexes created successfully');
-    });
+
+    return conn;
 
   } catch (error) {
     console.error(`Error: ${error.message}`);

@@ -7,11 +7,11 @@ A professional, production-ready Final Year Project Management System built with
 
 ## 🎯 Project Overview
 
-This is a comprehensive web-based application designed to streamline the management of academic final year projects. The system supports three user roles (Student, Teacher, Admin) with complete CRUD operations, file management, and real-time notifications.
+This is a comprehensive web-based application designed to streamline the management of academic final year projects. The system supports three user roles (Student, Faculty, Admin) with complete CRUD operations, file management, and notifications.
 
 ### Key Features
 - ✅ Secure JWT-based authentication
-- ✅ Role-based access control (Student, Teacher, Admin)
+- ✅ Role-based access control (Student, Faculty, Admin)
 - ✅ Project proposal submission and tracking
 - ✅ Supervisor request and approval workflow
 - ✅ Admin approval system
@@ -154,14 +154,14 @@ Content-Type: application/json
 
 **Response:** You'll receive a token and user object
 
-### Create Sample Teacher
+### Create Sample Faculty
 
 ```json
 {
   "name": "Dr. John Smith",
   "email": "john.smith@fyp.com",
-  "password": "teacher123",
-  "role": "teacher",
+  "password": "faculty123",
+  "role": "faculty",
   "department": "Computer Science",
   "employeeId": "EMP001",
   "phone": "9876543211"
@@ -192,9 +192,9 @@ After creating users, you can login with:
 - Email: `admin@fyp.com`
 - Password: `admin123`
 
-**Teacher:**
+**Faculty:**
 - Email: `john.smith@fyp.com`
-- Password: `teacher123`
+- Password: `faculty123`
 
 **Student:**
 - Email: `student@fyp.com`
@@ -211,8 +211,8 @@ After creating users, you can login with:
 4. Select a supervisor from the dropdown
 5. View project status and progress
 
-### As a Teacher:
-1. Login with teacher credentials
+### As a Faculty Member:
+1. Login with faculty credentials
 2. View "Supervision Requests" tab
 3. Accept or reject student requests
 4. View assigned projects
@@ -232,16 +232,20 @@ After creating users, you can login with:
 ### Authentication
 - `POST /api/auth/register` - Register new user
 - `POST /api/auth/login` - Login user
+- `POST /api/auth/logout` - Logout user and clear session cookie
 - `GET /api/auth/me` - Get current user
+- `DELETE /api/auth/me` - Deactivate current account
 - `PUT /api/auth/updateprofile` - Update profile
 - `PUT /api/auth/updatepassword` - Change password
+- `POST /api/auth/forgotpassword` - Request reset email
+- `PUT /api/auth/resetpassword/:token` - Reset password
 
 ### Projects
 - `GET /api/projects` - Get all projects (filtered by role)
 - `POST /api/projects` - Create new project (Student)
 - `GET /api/projects/:id` - Get single project
 - `PUT /api/projects/:id/request-supervisor` - Request supervisor
-- `PUT /api/projects/:id/supervisor-response` - Accept/Reject (Teacher)
+- `PUT /api/projects/:id/supervisor-response` - Accept/Reject (Faculty)
 - `PUT /api/projects/:id/admin-approval` - Approve/Reject (Admin)
 - `POST /api/projects/:id/feedback` - Add feedback
 - `POST /api/projects/:id/documents` - Upload document
@@ -253,7 +257,7 @@ After creating users, you can login with:
 - `GET /api/users/:id` - Get single user
 - `PUT /api/users/:id` - Update user
 - `DELETE /api/users/:id` - Delete user
-- `GET /api/users/teachers` - Get all teachers
+- `GET /api/users/faculty` - Get all faculty members
 - `GET /api/users/stats/dashboard` - Get dashboard stats
 
 ### Files
@@ -261,7 +265,7 @@ After creating users, you can login with:
 - `DELETE /api/files/:projectId/:documentId` - Delete file
 
 ### Notifications
-- `GET /api/notifications` - Get user notifications
+- `GET /api/notifications?page=1&limit=20&read=false` - Get user notifications (paged/filterable)
 - `PUT /api/notifications/:id/read` - Mark as read
 - `PUT /api/notifications/read-all` - Mark all as read
 - `DELETE /api/notifications/:id` - Delete notification
@@ -312,7 +316,7 @@ fyp-management-system/
     │   │   ├── Login.js             # Login page
     │   │   ├── Register.js          # Registration page
     │   │   ├── StudentDashboard.js  # Student dashboard
-    │   │   ├── TeacherDashboard.js  # Teacher dashboard
+    │   │   ├── FacultyDashboard.js  # Faculty dashboard
     │   │   ├── AdminDashboard.js    # Admin dashboard
     │   │   ├── ProjectDetails.js    # Project details
     │   │   └── Profile.js           # User profile
@@ -419,6 +423,27 @@ Solution: Check MAX_FILE_SIZE in .env (default 10MB)
 
 ## 📦 Deployment (Optional)
 
+### Environment Templates
+- Backend template: `backend/.env.example`
+- Frontend template: `frontend/.env.example`
+- Copy these templates and fill values before deployment.
+
+### Backup and Restore Plan
+1. Database backup command:
+  `mongodump --uri="mongodb://localhost:27017/fyp_management" --out="./backups/fyp_management_backup"`
+2. Database restore command:
+  `mongorestore --uri="mongodb://localhost:27017/fyp_management" --drop "./backups/<backup-folder>/fyp_management"`
+3. File backup:
+  zip the `backend/uploads` folder daily or weekly based on project activity.
+4. Keep at least 3 rolling backups and verify restore once before viva/demo.
+
+### Test Commands
+1. Backend validation tests:
+  `cd backend && npm test`
+2. Frontend lint/build checks:
+  `cd frontend && npx eslint src`
+  `cd frontend && npm run build`
+
 ### Backend Deployment (Render/Heroku)
 1. Push code to GitHub
 2. Connect repository to Render/Heroku
@@ -468,7 +493,7 @@ For any issues or questions during setup:
 - [ ] Frontend application accessible
 - [ ] MongoDB connected successfully
 - [ ] Admin user created and can login
-- [ ] Sample student and teacher accounts created
+- [ ] Sample student and faculty accounts created
 - [ ] Test project submission workflow
 - [ ] Test supervisor request/approval
 - [ ] Test admin approval

@@ -1,6 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const Project = require('../models/Project');
+const { appendAuditEntry } = require('../utils/auditTrail');
 
 // @desc    Download file
 // @route   GET /api/files/download/:filename
@@ -8,6 +9,13 @@ const Project = require('../models/Project');
 exports.downloadFile = async (req, res) => {
   try {
     const { filename } = req.params;
+    if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid filename'
+      });
+    }
+
     const filePath = path.join(__dirname, '../uploads', filename);
 
     // Check if file exists
@@ -22,7 +30,10 @@ exports.downloadFile = async (req, res) => {
     const project = await Project.findOne({
       $or: [
         { 'proposalFile.filename': filename },
-        { 'documents.filename': filename }
+        { 'documents.filename': filename },
+        { 'codeReview.screenRecording.filename': filename },
+        { 'phases.submission.fileUrl': { $regex: `${filename}$` } },
+        { 'phases.submission.videoUrl': { $regex: `${filename}$` } }
       ]
     });
 
@@ -37,7 +48,10 @@ exports.downloadFile = async (req, res) => {
     const isAuthorized = 
       req.user.role === 'admin' ||
       project.student.toString() === req.user.id ||
-      (project.supervisor && project.supervisor.toString() === req.user.id);
+      (project.supervisor && project.supervisor.toString() === req.user.id) ||
+      project.teamMembers.some(
+        (member) => member.student && member.student.toString() === req.user.id && member.inviteStatus === 'accepted'
+      );
 
     if (!isAuthorized) {
       return res.status(403).json({
@@ -50,10 +64,25 @@ exports.downloadFile = async (req, res) => {
     let originalName = filename;
     if (project.proposalFile && project.proposalFile.filename === filename) {
       originalName = project.proposalFile.originalName;
+    } else if (project.codeReview?.screenRecording?.filename === filename) {
+      originalName = project.codeReview.screenRecording.originalName || filename;
     } else {
       const doc = project.documents.find(d => d.filename === filename);
       if (doc) {
         originalName = doc.originalName;
+      } else {
+        const phaseWithFile = project.phases.find((phase) => phase.submission && (
+          (phase.submission.fileUrl && phase.submission.fileUrl.endsWith(filename)) ||
+          (phase.submission.videoUrl && phase.submission.videoUrl.endsWith(filename))
+        ));
+
+        if (phaseWithFile) {
+          if (phaseWithFile.submission.fileUrl && phaseWithFile.submission.fileUrl.endsWith(filename)) {
+            originalName = phaseWithFile.submission.fileName || filename;
+          } else {
+            originalName = phaseWithFile.submission.videoName || filename;
+          }
+        }
       }
     }
 
@@ -68,7 +97,7 @@ exports.downloadFile = async (req, res) => {
   } catch (error) {
     res.status(400).json({
       success: false,
-      message: error.message
+      message: 'An error occurred. Please try again.'
     });
   }
 };
@@ -118,6 +147,11 @@ exports.deleteFile = async (req, res) => {
 
     // Remove from database
     project.documents.splice(documentIndex, 1);
+    appendAuditEntry(project, {
+      userId: req.user.id,
+      action: 'document_deleted',
+      changes: `Document deleted: ${document.originalName || document.filename}`
+    });
     await project.save();
 
     res.status(200).json({
@@ -127,7 +161,7 @@ exports.deleteFile = async (req, res) => {
   } catch (error) {
     res.status(400).json({
       success: false,
-      message: error.message
+      message: 'An error occurred. Please try again.'
     });
   }
 };

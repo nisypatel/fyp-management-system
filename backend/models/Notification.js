@@ -51,6 +51,33 @@ const notificationSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  updatedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+  changeHistory: [{
+    changedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null
+    },
+    action: {
+      type: String,
+      required: true,
+      trim: true,
+      maxlength: 100
+    },
+    changes: {
+      type: String,
+      trim: true,
+      maxlength: 500
+    },
+    changedAt: {
+      type: Date,
+      default: Date.now
+    }
+  }],
   createdAt: {
     type: Date,
     default: Date.now

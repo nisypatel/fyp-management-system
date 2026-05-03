@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-toastify';
 import usePageTitle from '../hooks/usePageTitle';
 import { FaEye, FaEyeSlash } from 'react-icons/fa';
+import { isValidEmail } from '../utils/validation';
 
 const Login = () => {
   const [formData, setFormData] = useState({ email: '', password: '' });
@@ -21,10 +22,21 @@ const Login = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    const email = formData.email.trim().toLowerCase();
+    if (!isValidEmail(email)) {
+      toast.error('Please enter a valid email address');
+      return;
+    }
+    if (!formData.password) {
+      toast.error('Please enter your password');
+      return;
+    }
+
     setLoading(true);
 
     // Call context login: backend sets secure cookie, then we route to dashboard.
-    const result = await login(formData.email, formData.password);
+    const result = await login(email, formData.password);
     if (result.success) {
       toast.success('Login successful!');
       navigate('/');

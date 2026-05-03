@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { authService } from '../services/authService';
 import usePageTitle from '../hooks/usePageTitle';
+import { getApiErrorMessage, isValidEmail } from '../utils/validation';
 
 const ForgotPassword = () => {
   usePageTitle('Forgot Password | FYP System');
@@ -14,13 +15,20 @@ const ForgotPassword = () => {
     e.preventDefault();
     setError('');
     setMessage('');
+
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!isValidEmail(normalizedEmail)) {
+      setError('Please enter a valid email address.');
+      return;
+    }
+
     setLoading(true);
 
     try {
-      await authService.forgotPassword(email);
+      await authService.forgotPassword(normalizedEmail);
       setMessage('An email has been sent with password reset instructions.');
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to send reset email.');
+      setError(getApiErrorMessage(err, 'Failed to send reset email.'));
     } finally {
       setLoading(false);
     }

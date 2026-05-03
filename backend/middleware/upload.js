@@ -2,6 +2,42 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
+const documentExtensions = new Set(['.pdf', '.doc', '.docx', '.ppt', '.pptx', '.zip', '.rar', '.jpg', '.jpeg', '.png']);
+const documentMimeTypes = new Set([
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/zip',
+  'application/x-zip-compressed',
+  'application/vnd.rar',
+  'application/x-rar-compressed',
+  'image/jpeg',
+  'image/png'
+]);
+
+const videoExtensions = new Set(['.mp4', '.webm', '.avi', '.mov', '.mkv', '.flv', '.wmv']);
+const videoMimeTypes = new Set([
+  'video/mp4',
+  'video/webm',
+  'video/x-msvideo',
+  'video/quicktime',
+  'video/x-matroska',
+  'video/x-flv',
+  'video/x-ms-wmv'
+]);
+
+const isAllowedDocument = (file) => {
+  const ext = path.extname(file.originalname || '').toLowerCase();
+  return documentExtensions.has(ext) && documentMimeTypes.has((file.mimetype || '').toLowerCase());
+};
+
+const isAllowedVideo = (file) => {
+  const ext = path.extname(file.originalname || '').toLowerCase();
+  return videoExtensions.has(ext) && videoMimeTypes.has((file.mimetype || '').toLowerCase());
+};
+
 // Create uploads directory if it doesn't exist
 const uploadDir = './uploads';
 if (!fs.existsSync(uploadDir)) {
@@ -21,24 +57,16 @@ const storage = multer.diskStorage({
 
 // File filter for documents
 const docFileFilter = (req, file, cb) => {
-  // Allowed file types for documents
-  const allowedTypes = /pdf|doc|docx|ppt|pptx|zip|rar|jpg|jpeg|png/;
-  const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-  const mimetype = allowedTypes.test(file.mimetype);
-
-  if (mimetype && extname) {
+  if (isAllowedDocument(file)) {
     return cb(null, true);
   } else {
-    cb(new Error('Invalid file type. Only PDF, DOC, DOCX, PPT, PPTX, ZIP, RAR, JPG, JPEG, PNG are allowed'));
+    cb(new Error('Invalid file type. Only PDF, DOC, DOCX, PPT, PPTX, ZIP, RAR, JPG, JPEG, PNG are allowed.'));
   }
 };
 
 const phaseFileFilter = (req, file, cb) => {
-  const documentTypes = /pdf|doc|docx|ppt|pptx|zip|rar|jpg|jpeg|png/;
-  const videoTypes = /mp4|webm|avi|mov|mkv|flv|wmv/;
-  const extname = path.extname(file.originalname).toLowerCase();
-  const isDocument = documentTypes.test(extname) && documentTypes.test(file.mimetype);
-  const isVideo = videoTypes.test(extname) && videoTypes.test(file.mimetype);
+  const isDocument = isAllowedDocument(file);
+  const isVideo = isAllowedVideo(file);
 
   if (isDocument || isVideo) {
     return cb(null, true);
@@ -49,15 +77,10 @@ const phaseFileFilter = (req, file, cb) => {
 
 // File filter for videos
 const videoFileFilter = (req, file, cb) => {
-  // Allowed file types for videos
-  const allowedTypes = /mp4|webm|avi|mov|mkv|flv|wmv/;
-  const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-  const mimetype = allowedTypes.test(file.mimetype);
-
-  if (mimetype && extname) {
+  if (isAllowedVideo(file)) {
     return cb(null, true);
   } else {
-    cb(new Error('Invalid file type. Only MP4, WebM, AVI, MOV, MKV, FLV, WMV are allowed'));
+    cb(new Error('Invalid file type. Only MP4, WebM, AVI, MOV, MKV, FLV, WMV are allowed.'));
   }
 };
 
@@ -74,7 +97,7 @@ const upload = multer({
 const uploadVideo = multer({
   storage: storage,
   limits: {
-    fileSize: 500 * 1024 * 1024 // 500MB for videos
+    fileSize: parseInt(process.env.MAX_VIDEO_FILE_SIZE, 10) || 500 * 1024 * 1024
   },
   fileFilter: videoFileFilter
 });
@@ -82,9 +105,32 @@ const uploadVideo = multer({
 const phaseUpload = multer({
   storage: storage,
   limits: {
-    fileSize: 500 * 1024 * 1024
+    fileSize: parseInt(process.env.MAX_PHASE_FILE_SIZE, 10) || 500 * 1024 * 1024,
+    files: 2
   },
   fileFilter: phaseFileFilter
+});
+
+// File filter for ID cards (images only)
+const idCardFileFilter = (req, file, cb) => {
+  const imageExtensions = new Set(['.jpg', '.jpeg', '.png']);
+  const imageMimeTypes = new Set(['image/jpeg', 'image/png']);
+
+  const ext = path.extname(file.originalname || '').toLowerCase();
+  if (imageExtensions.has(ext) && imageMimeTypes.has((file.mimetype || '').toLowerCase())) {
+    return cb(null, true);
+  } else {
+    cb(new Error('Invalid file type. Only JPG, JPEG, PNG images are allowed for ID cards.'));
+  }
+};
+
+// Multer upload configuration for ID cards
+const uploadIDCard = multer({
+  storage: storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB
+  },
+  fileFilter: idCardFileFilter
 });
 
 // Error handling middleware for multer
@@ -94,6 +140,13 @@ const handleMulterError = (err, req, res, next) => {
       return res.status(400).json({
         success: false,
         message: 'File too large. Please upload a smaller file.'
+      });
+    }
+
+    if (err.code === 'LIMIT_FILE_COUNT') {
+      return res.status(400).json({
+        success: false,
+        message: 'Too many files uploaded. Please follow the allowed file count.'
       });
     }
     return res.status(400).json({
@@ -109,4 +162,4 @@ const handleMulterError = (err, req, res, next) => {
   next();
 };
 
-module.exports = { upload, uploadVideo, phaseUpload, handleMulterError };
+module.exports = { upload, uploadVideo, phaseUpload, uploadIDCard, handleMulterError };

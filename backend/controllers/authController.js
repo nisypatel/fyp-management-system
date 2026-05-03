@@ -1,7 +1,12 @@
-﻿const User = require('../models/User');
+const User = require('../models/User');
+const UserType = require('../models/UserType');
+const { normalizeRole } = require('../utils/role');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { sendEmail } = require('../utils/sendEmail');
+const logger = require('../utils/logger');
+const { uploadBufferToCloudinary, deleteFromCloudinary, isCloudinaryConfigured } = require('../utils/cloudinary');
+const { appendAuditEntry } = require('../utils/auditTrail');
 
 // Generate JWT Token
 const generateToken = (id) => {
@@ -58,6 +63,7 @@ exports.register = async (req, res) => {
     }
 
     const { name, email, password, role, department, enrollmentNumber, employeeId, phone } = req.body;
+    const normalizedRole = normalizeRole(role) || 'student';
 
     // Check if user email exists
     const emailExists = await User.findOne({ email });
@@ -99,8 +105,21 @@ exports.register = async (req, res) => {
       name,
       email,
       password,
-      role: role || 'student'
+      role: normalizedRole,
+      updatedBy: null,
+      changeHistory: [
+        {
+          changedBy: null,
+          action: 'user_registered',
+          changes: `Self-registered with role ${normalizedRole}`
+        }
+      ]
     };
+
+    const userType = await UserType.findOne({ key: normalizedRole });
+    if (userType) {
+      userData.roleType = userType._id;
+    }
 
     if (phone) {
       userData.phone = phone;
@@ -142,12 +161,12 @@ exports.register = async (req, res) => {
 
       await sendEmail({
         email: user.email,
-        subject: 'Welcome to FYP Management System! 🎉',
+        subject: 'Welcome to FYP Management System! ??',
         message: `Hi ${user.name},\n\nWelcome to the FYP Management System! Your account has been successfully created as a ${user.role}.\n\nBest regards,\nFYP Team`,
         html: emailHtml
       });
     } catch (err) {
-      console.log('Error sending welcome email:', err.message);
+      logger.warn('Error sending welcome email', { message: err.message, email: user.email });
       // We don't want to fail registration if email fails
     }
 
@@ -155,7 +174,7 @@ exports.register = async (req, res) => {
   } catch (error) {
     res.status(400).json({
       success: false,
-      message: error.message
+      message: 'An error occurred. Please try again.'
     });
   }
 };
@@ -225,7 +244,7 @@ exports.login = async (req, res) => {
   } catch (error) {
     res.status(400).json({
       success: false,
-      message: error.message
+      message: 'An error occurred. Please try again.'
     });
   }
 };
@@ -244,7 +263,7 @@ exports.getMe = async (req, res) => {
   } catch (error) {
     res.status(400).json({
       success: false,
-      message: error.message
+      message: 'An error occurred. Please try again.'
     });
   }
 };
@@ -254,15 +273,27 @@ exports.getMe = async (req, res) => {
 // @access  Private
 exports.updateProfile = async (req, res) => {
   try {
-    const fieldsToUpdate = {
-      name: req.body.name,
-      phone: req.body.phone
-    };
+    const user = await User.findById(req.user.id);
 
-    const user = await User.findByIdAndUpdate(req.user.id, fieldsToUpdate, {
-      new: true,
-      runValidators: true
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    if (req.body.name !== undefined) {
+      user.name = req.body.name;
+    }
+    if (req.body.phone !== undefined) {
+      user.phone = req.body.phone;
+    }
+    appendAuditEntry(user, {
+      userId: req.user.id,
+      action: 'profile_updated',
+      changes: 'Updated profile name/phone'
     });
+    await user.save();
 
     res.status(200).json({
       success: true,
@@ -271,7 +302,7 @@ exports.updateProfile = async (req, res) => {
   } catch (error) {
     res.status(400).json({
       success: false,
-      message: error.message
+      message: 'An error occurred. Please try again.'
     });
   }
 };
@@ -302,13 +333,18 @@ exports.updatePassword = async (req, res) => {
     }
 
     user.password = newPassword;
+    appendAuditEntry(user, {
+      userId: req.user.id,
+      action: 'password_updated',
+      changes: 'Password changed by authenticated user'
+    });
     await user.save();
 
     sendTokenResponse(user, 200, res);
   } catch (error) {
     res.status(400).json({
       success: false,
-      message: error.message
+      message: 'An error occurred. Please try again.'
     });
   }
 };
@@ -352,14 +388,14 @@ exports.forgotPassword = async (req, res) => {
 
       await sendEmail({
         email: user.email,
-        subject: '🔒 Reset Your FYP Management Password',
+        subject: '?? Reset Your FYP Management Password',
         message,
         html: resetHtml
       });
 
       res.status(200).json({ success: true, message: 'Email sent' });
     } catch (err) {
-      console.error(err);
+      logger.error('Forgot password email failure', { message: err.message, stack: err.stack, email: user.email });
       user.resetPasswordToken = undefined;
       user.resetPasswordExpire = undefined;
       await user.save({ validateBeforeSave: false });
@@ -367,7 +403,7 @@ exports.forgotPassword = async (req, res) => {
       return res.status(500).json({ success: false, message: 'Email could not be sent' });
     }
   } catch (error) {
-    res.status(400).json({ success: false, message: error.message });
+    res.status(400).json({ success: false, message: 'An error occurred. Please try again.' });
   }
 };
 
@@ -405,11 +441,16 @@ exports.resetPassword = async (req, res) => {
     user.password = password;
     user.resetPasswordToken = undefined;
     user.resetPasswordExpire = undefined;
+    appendAuditEntry(user, {
+      userId: user._id,
+      action: 'password_reset',
+      changes: 'Password reset via token flow'
+    });
     await user.save();
 
     sendTokenResponse(user, 200, res);
   } catch (error) {
-    res.status(400).json({ success: false, message: error.message });
+    res.status(400).json({ success: false, message: 'An error occurred. Please try again.' });
   }
 };
 
@@ -426,6 +467,59 @@ exports.logout = (req, res) => {
     success: true,
     data: {}
   });
+};
+
+// @desc    Deactivate user account
+// @route   DELETE /api/auth/me
+// @access  Private
+exports.deactivateMyAccount = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    user.isActive = false;
+    appendAuditEntry(user, {
+      userId: req.user.id,
+      action: 'account_deactivated',
+      changes: 'User deactivated own account'
+    });
+    await user.save();
+    res.cookie('token', 'none', { expires: new Date(Date.now() + 10 * 1000), httpOnly: true });
+    res.status(200).json({ success: true, message: 'Account deactivated successfully' });
+  } catch (error) {
+    res.status(400).json({ success: false, message: 'Failed to deactivate account. Please try again.' });
+  }
+};
+
+// @desc    Upload profile image
+// @route   POST /api/auth/profile-image
+// @access  Private
+exports.uploadProfileImage = async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
+    
+    const user = await User.findById(req.user.id);
+    if (user.avatar?.publicId && isCloudinaryConfigured()) {
+      await deleteFromCloudinary(user.avatar.publicId);
+    }
+    
+    if (isCloudinaryConfigured()) {
+      const result = await uploadBufferToCloudinary(req.file.buffer, { folder: 'fyp-avatars' });
+      user.avatar = { publicId: result.public_id, url: result.secure_url, uploadedAt: new Date() };
+    }
+    appendAuditEntry(user, {
+      userId: req.user.id,
+      action: 'avatar_updated',
+      changes: 'Profile image updated'
+    });
+    
+    await user.save();
+    res.status(200).json({ success: true, user });
+  } catch (error) {
+    res.status(400).json({ success: false, message: 'Failed to upload profile image. Please try again.' });
+  }
 };
 
 

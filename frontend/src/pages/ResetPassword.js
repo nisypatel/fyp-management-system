@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { useNavigate, useParams, Link } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { authService } from '../services/authService';
 import usePageTitle from '../hooks/usePageTitle';
+import { getApiErrorMessage, isStrongPassword } from '../utils/validation';
 
 const ResetPassword = () => {
   usePageTitle('Reset Password | FYP System');
@@ -23,6 +24,10 @@ const ResetPassword = () => {
       return setError('Passwords do not match');
     }
 
+    if (!isStrongPassword(password)) {
+      return setError('Password must be at least 8 characters and include letters and numbers');
+    }
+
     setLoading(true);
 
     try {
@@ -30,7 +35,7 @@ const ResetPassword = () => {
       setMessage('Password reset successful. You can now login.');
       setTimeout(() => navigate('/login'), 2000);
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to reset password. The link might be expired or invalid.');
+      setError(getApiErrorMessage(err, 'Failed to reset password. The link might be expired or invalid.'));
     } finally {
       setLoading(false);
     }

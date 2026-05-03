@@ -1,4 +1,5 @@
 const nodemailer = require('nodemailer');
+const logger = require('./logger');
 
 const sendEmail = async (options) => {
   const host = process.env.SMTP_HOST;
@@ -34,10 +35,10 @@ const sendEmail = async (options) => {
   // Send the email
   try {
     const info = await transporter.sendMail(message);
-    console.log('Message sent: %s', info.messageId);
+    logger.info('Email sent', { messageId: info.messageId, to: options.email });
     return info;
   } catch (error) {
-    console.error('Email send failed:', error.message);
+    logger.error('Email send failed', { message: error.message, to: options.email });
     throw error;
   }
 };
@@ -67,7 +68,7 @@ const sendProjectCompletionEmail = async (email, projectTitle, teamMemberName) =
       html
     });
   } catch (error) {
-    console.error('Error sending project completion email:', error);
+    logger.error('Error sending project completion email', { message: error.message, stack: error.stack, email });
   }
 };
 

@@ -79,9 +79,30 @@ const projectSchema = new mongoose.Schema({
   }],
   status: {
     type: String,
-    enum: ['proposal', 'in-progress', 'completed', 'rejected'],
+    enum: ['proposal', 'in-progress', 'completed', 'rejected', 'paused'],
     default: 'proposal'
   },
+  presetId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Preset',
+    required: true
+  },
+  presetSnapshot: {
+    type: [{
+      title: {
+        type: String,
+        trim: true,
+        maxlength: [100, 'Phase title cannot exceed 100 characters']
+      }
+    }],
+    default: []
+  },
+  isPaused: {
+    type: Boolean,
+    default: false
+  },
+  pausedAt: Date,
+  resetAt: Date,
   codeReview: {
     screenRecording: {
       filename: String,
@@ -118,7 +139,8 @@ const projectSchema = new mongoose.Schema({
     type: [{
       title: {
         type: String,
-        enum: ['Synopsis', 'Design/UML', 'Frontend', 'Backend', 'Testing & Report']
+        trim: true,
+        maxlength: [100, 'Phase title cannot exceed 100 characters']
       },
       status: {
         type: String,
@@ -129,6 +151,7 @@ const projectSchema = new mongoose.Schema({
         link: String, 
         fileUrl: String, 
         fileName: String,
+        fileSize: Number,
         submittedBy: {
           type: mongoose.Schema.Types.ObjectId,
           ref: 'User'
@@ -139,16 +162,27 @@ const projectSchema = new mongoose.Schema({
         comments: String,
         submittedAt: Date
       },
-      feedback: String,
+      feedback: [{
+        from: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'User'
+        },
+        message: {
+          type: String,
+          trim: true
+        },
+        timestamp: {
+          type: Date,
+          default: Date.now
+        },
+        role: {
+          type: String,
+          enum: ['student', 'faculty', 'admin']
+        }
+      }],
       approvedAt: Date
     }],
-    default: [
-      { title: 'Synopsis', status: 'pending' },
-      { title: 'Design/UML', status: 'pending' },
-      { title: 'Frontend', status: 'pending' },
-      { title: 'Backend', status: 'pending' },
-      { title: 'Testing & Report', status: 'pending' }
-    ]
+    default: []
   },
   feedback: [{
     from: {
@@ -170,6 +204,38 @@ const projectSchema = new mongoose.Schema({
       default: false
     },
     completedAt: Date
+  }],
+  delayReminder: {
+    phaseId: String,
+    lastSentAt: Date,
+    inactiveDaysAtLastReminder: Number
+  },
+  updatedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+  changeHistory: [{
+    changedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null
+    },
+    action: {
+      type: String,
+      required: true,
+      trim: true,
+      maxlength: 100
+    },
+    changes: {
+      type: String,
+      trim: true,
+      maxlength: 500
+    },
+    changedAt: {
+      type: Date,
+      default: Date.now
+    }
   }]
 }, {
   timestamps: true

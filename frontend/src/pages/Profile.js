@@ -8,6 +8,7 @@ import usePageTitle from '../hooks/usePageTitle';
 import Navbar from '../components/Navbar';
 import { FaEye, FaEyeSlash } from 'react-icons/fa';
 import { FiArrowLeft } from 'react-icons/fi';
+import { isStrongPassword, isValidPhone } from '../utils/validation';
 
 const Profile = () => {
   const { user, updateUser } = useAuth();
@@ -27,11 +28,26 @@ const Profile = () => {
   const [loading, setLoading] = useState(false);
   const [showProfileConfirm, setShowProfileConfirm] = useState(false);
   const [showPasswordConfirm, setShowPasswordConfirm] = useState(false);
+  const [deactivating, setDeactivating] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const avatarInitial = (user?.name || 'U').trim().charAt(0).toUpperCase();
+  const defaultAvatar = `data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><rect width='100%' height='100%' fill='#e2e8f0'/><text x='50%' y='55%' font-family='Arial, sans-serif' font-size='64' fill='#1e293b' text-anchor='middle'>${avatarInitial}</text></svg>`)}`;
 
   usePageTitle('Profile | FYP Management');
 
   const handleProfileUpdate = async (e) => {
     e.preventDefault();
+
+    if (!formData.name.trim()) {
+      toast.error('Name is required');
+      return;
+    }
+
+    if (!isValidPhone(formData.phone)) {
+      toast.error('Phone number must be exactly 10 digits');
+      return;
+    }
+
     setShowProfileConfirm(true);
   };
 
@@ -55,7 +71,59 @@ const Profile = () => {
       toast.error('Passwords do not match');
       return;
     }
+
+    if (!isStrongPassword(passwordData.newPassword)) {
+      toast.error('Password must be at least 8 characters and include letters and numbers');
+      return;
+    }
+
     setShowPasswordConfirm(true);
+  };
+
+  const handleDeactivateAccount = async () => {
+    const shouldDeactivate = window.confirm('Are you sure you want to deactivate your account? This will log you out immediately.');
+    if (!shouldDeactivate) return;
+
+    setDeactivating(true);
+    try {
+      await authService.deactivateMyAccount();
+      navigate('/login');
+      toast.success('Your account has been deactivated');
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Could not deactivate account');
+    }
+    setDeactivating(false);
+  };
+
+  const handleProfileImageChange = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+      toast.error('Only JPG, PNG, and WEBP images are allowed');
+      event.target.value = '';
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Profile image must be 5MB or smaller');
+      event.target.value = '';
+      return;
+    }
+
+    setUploadingImage(true);
+    try {
+      const updatedUser = await authService.uploadProfileImage(file);
+      updateUser(updatedUser);
+      toast.success('Profile image updated successfully');
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Could not upload profile image');
+    }
+    setUploadingImage(false);
+    event.target.value = '';
   };
 
   const confirmPasswordUpdate = async () => {
@@ -89,6 +157,28 @@ const Profile = () => {
             <h2 className="card-title">User Information</h2>
           </div>
           <div className="card-body">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '20px' }}>
+              <img
+                src={user?.avatar?.url || defaultAvatar}
+                alt="Profile"
+                style={{ width: '76px', height: '76px', borderRadius: '50%', objectFit: 'cover', border: '2px solid #e2e8f0' }}
+              />
+              <div>
+                <label className="btn btn-sm btn-outline" style={{ cursor: uploadingImage ? 'not-allowed' : 'pointer', opacity: uploadingImage ? 0.7 : 1 }}>
+                  {uploadingImage ? 'Uploading...' : 'Change Profile Photo'}
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    onChange={handleProfileImageChange}
+                    disabled={uploadingImage}
+                    style={{ display: 'none' }}
+                  />
+                </label>
+                <small style={{ display: 'block', color: '#64748b', marginTop: '8px' }}>
+                  JPG, PNG, WEBP up to 5MB
+                </small>
+              </div>
+            </div>
             <div className="user-details-grid">
               <div className="user-detail-item">
                 <span className="user-detail-label">Name</span>
@@ -226,6 +316,20 @@ const Profile = () => {
                 {loading ? 'Updating...' : 'Change Password'}
               </button>
             </form>
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="card-header">
+            <h2 className="card-title">Privacy</h2>
+          </div>
+          <div className="card-body">
+            <p style={{ marginBottom: '12px', color: '#475569' }}>
+              You can deactivate your account if you no longer need access. An admin can reactivate it later if required.
+            </p>
+            <button className="btn btn-danger" onClick={handleDeactivateAccount} disabled={deactivating}>
+              {deactivating ? 'Deactivating...' : 'Deactivate My Account'}
+            </button>
           </div>
         </div>
       </div>

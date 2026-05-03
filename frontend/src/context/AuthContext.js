@@ -35,9 +35,21 @@ export const AuthProvider = ({ children }) => {
         loadUser(); // Re-verify with backend to get the exact identical state
       }
     };
+
+    const handleSessionExpired = () => {
+      setUser(null);
+      triggerSync();
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login';
+      }
+    };
     
     window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
+    window.addEventListener('auth:session-expired', handleSessionExpired);
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('auth:session-expired', handleSessionExpired);
+    };
   }, []);
 
   const triggerSync = () => {

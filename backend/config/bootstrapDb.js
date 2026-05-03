@@ -47,7 +47,8 @@ const seedPhaseTemplates = async () => {
 
 const bootstrapDatabase = async () => {
   await Promise.all(collections.map((model) => model.createCollection()));
-  await Promise.all(collections.map((model) => model.init()));
+  // Use syncIndexes to safely create/update indexes without conflicts
+  await Promise.all(collections.map((model) => model.syncIndexes()));
   await seedPhaseTemplates();
 };
 

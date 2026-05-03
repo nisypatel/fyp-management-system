@@ -1,0 +1,131 @@
+===============================================
+FYP-2 PROJECT: COMPLETED WORK LOG
+===============================================
+Session Started: April 26, 2026
+
+COMPLETED TASKS:
+================
+
+[SETUP] Created rrr-1 folder and documentation files
+Time: Session start
+
+============ WORKING ON: Fix Error Message Leaking ============
+[✓] Created AppError utility class (backend/utils/appError.js)
+[✓] Improved error handler middleware with proper error sanitization  
+[✓] Fixed authController.deactivateMyAccount - sanitized error messages
+[✓] Fixed authController.uploadProfileImage - sanitized error messages
+[✓] Fixed all 7 catch blocks in userController.js
+[✓] Fixed all catch blocks in authController.js (except new ones already done)
+[✓] Fixed all catch blocks in fileController.js
+[✓] Fixed all catch blocks in notificationController.js
+[✓] Fixed all catch blocks in projectController.js
+
+============ COMPLETED: Fix Rate Limiting ============
+[✓] Installed express-rate-limit package
+[✓] Created middleware/rateLimiter.js with 4 limiters:
+    - authLoginLimiter: 5 requests per 15 minutes
+    - authRegisterLimiter: 3 requests per hour
+    - authForgotPasswordLimiter: 3 requests per hour
+    - generalLimiter: 100 requests per 15 minutes
+[✓] Updated backend/routes/auth.js to use rate limiters on:
+    - POST /api/auth/login
+    - POST /api/auth/register
+    - POST /api/auth/forgotpassword
+
+============ NEXT: File Cleanup on Failure ============
+[✓] Reviewed fileController.js - already implements proper cleanup pattern
+[✓] Cloudinary uploads in authController properly handle errors
+[✓] Files are deleted from filesystem before DB update (correct order)
+
+============ NEXT: Transaction Support for Multi-Step Operations ============
+[✓] Added transaction helper utility (backend/utils/transaction.js) with session attach helper
+[✓] Added graceful fallback when transaction is unsupported or DB connection is not ready
+[✓] Integrated transactions into createProject, requestSupervisor, supervisorResponse, and submitPhase
+[✓] Added session-aware notification creation for transactional project flows
+[✓] Added guards to prevent success responses after early transaction callback validation responses
+[✓] Re-ran backend tests successfully (13/13)
+[✓] Verified Project and PhaseTemplate models load without syntax errors
+
+============ NEXT: Complete Screen Recording Review Feature ============
+[?] Verified reviewScreenRecording function exists and is fully implemented
+[?] Function properly handles approval/rejection with feedback
+[?] Validation exists and is properly configured
+[?] Route is properly set up and imported
+[?] Frontend integration exists in ProjectDetails.js
+
+============ NEXT: Implement Pagination in Admin Dashboard ============
+[✓] Added backend pagination to GET /api/projects with query params page, limit and metadata (total, totalPages)
+[✓] Added backend pagination to GET /api/users with query params page, limit and metadata (total, totalPages)
+[✓] Updated frontend projectService.getProjects to support params while keeping backward compatibility
+[✓] Updated frontend userService.getUsers to support params while keeping backward compatibility
+[✓] Added pagination controls in Admin Dashboard Projects tab (rows per page, previous, next, page/total info)
+[✓] Added pagination controls in Admin Dashboard Users tab (rows per page, previous, next, page/total info)
+[✓] Ran error checks on all edited files (no errors)
+
+============ NEXT: Fix Phase Feedback Structure ============
+[✓] Updated Project model phase feedback from String to structured Array entries
+[✓] Added phase feedback schema fields: from, message, timestamp, role
+[✓] Updated evaluatePhase controller to append feedback entries instead of replacing single string
+[✓] Added populate for phases.feedback.from in getProject endpoint
+[✓] Updated ProjectDetails UI to render feedback history entries with reviewer + timestamp
+[✓] Added backward compatibility in UI for legacy string feedback values
+[✓] Ran error checks on updated files (no errors)
+
+============ NEXT: Implement Search/Filter Functionality ============
+[✓] Added project search support in backend GET /api/projects using q (title + description)
+[✓] Added user search support in backend GET /api/users using q (name + email)
+[✓] Added faculty filter support in backend GET /api/users/faculty using department + q
+[✓] Preserved role-based visibility when combining student project access filters with search
+[✓] Made backend pagination opt-in to avoid truncating existing non-admin dashboards
+[✓] Added Admin Dashboard project search input and wired to server search
+[✓] Added Admin Dashboard user search + role filter wiring to server query
+[✓] Added Student Dashboard supervisor filters (department + name/email search)
+[✓] Updated userService.getFaculty to accept query params
+[✓] Backend tests passed (11/11)
+[✓] Frontend production build compiled successfully
+
+============ NEXT: Add Input Sanitization (XSS Protection) ============
+[✓] Installed xss package in backend
+[✓] Added backend/utils/sanitize.js utility with sanitizeText helper
+[✓] Sanitized project creation inputs (title, description, category, technologies)
+[✓] Sanitized phase template titles before persistence
+[✓] Sanitized project feedback inputs in addFeedback and evaluatePhase
+[✓] Sanitized screen recording review feedback
+[✓] Sanitized uploaded document title input
+[✓] Backend tests passed after sanitization changes (11/11)
+
+============ NEXT: Complete Empty Array Validation ============
+[✓] Added reusable parseArrayPayload helper in validators middleware
+[✓] Added createProjectValidation check to reject empty technologies array
+[✓] Added createProjectValidation teamMembers cap validation (max 4)
+[✓] Added validator tests for technologies array validation
+[✓] Backend tests passed with new validation coverage (13/13)
+
+============ NEXT: Implement Logging Infrastructure ============
+[✓] Installed winston package in backend
+[✓] Added centralized logger utility (backend/utils/logger.js)
+[✓] Replaced server startup/unhandled rejection console logs with logger
+[✓] Replaced DB connection/migration console logs with logger
+[✓] Replaced global error middleware console logging with structured logger
+[✓] Replaced email utility console logging with logger
+[✓] Replaced authController and projectController console logging with logger
+[✓] Verified no backend console.log/error/warn usage remains in source files
+[✓] Backend tests passed after logging refactor (13/13)
+
+============ NEXT: Complete Dashboard Statistics ============
+[✓] Verified admin dashboard stats include advanced metrics (delays, avg review hours, rejection hotspots)
+[✓] Verified faculty dashboard stats include assigned/pending/in-progress/completed counts
+[✓] Verified student dashboard stats include scoped counts for owner + accepted team-member projects
+[✓] Confirmed delayed-phase reminder generation is implemented with cooldown handling
+[✓] No code change required for this item (already complete and production-ready)
+
+============ NEXT: Add Audit Trail Fields ============
+[✓] Added audit fields to core models: User, Project, Notification, PhaseTemplate
+[✓] Added reusable audit helper utility (backend/utils/auditTrail.js)
+[✓] Updated project controller mutation flows to append audit history and updatedBy
+[✓] Updated auth + user controllers to track account/profile/password/audit-relevant updates
+[✓] Updated notification and file controllers to track read/delete-related history updates
+[✓] Added notification creation audit metadata for project-triggered notifications
+[✓] Backend tests passed after audit-trail changes (13/13)
+
+============ NEXT: Transaction Support for Multi-Step Operations ============

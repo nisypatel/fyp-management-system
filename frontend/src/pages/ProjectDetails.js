@@ -1,5 +1,5 @@
 // Purpose: Detailed single-project view with files, feedback, and progress updates.
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-toastify';
@@ -10,6 +10,7 @@ import usePageTitle from '../hooks/usePageTitle';
 import Navbar from '../components/Navbar';
 import StatusBadge from '../components/ui/StatusBadge';
 import '../styles/project-details.css';
+import { getApiErrorMessage, hasAllowedExtension, maxSizeInBytes } from '../utils/validation';
 
 const getFriendlyInviteStatus = (status) => {
   if (status === 'pending') return 'Awaiting Response';
@@ -41,7 +42,6 @@ const ProjectDetails = () => {
   const [feedback, setFeedback] = useState('');
   const [screenRecordingFile, setScreenRecordingFile] = useState(null);
   const [screenRecordingFeedback, setScreenRecordingFeedback] = useState('');
-  const [progress, setProgress] = useState(0);
   const [selectedPhaseId, setSelectedPhaseId] = useState('');
   const [phaseFile, setPhaseFile] = useState(null);
   const [phaseVideo, setPhaseVideo] = useState(null);
@@ -66,8 +66,24 @@ const ProjectDetails = () => {
       return;
     }
 
+    const allowedDocumentExt = ['.pdf', '.doc', '.docx', '.ppt', '.pptx', '.zip', '.rar', '.png', '.jpg', '.jpeg'];
+    if (!hasAllowedExtension(phaseFile.name, allowedDocumentExt)) {
+      toast.error('Unsupported file type for phase submission');
+      return;
+    }
+
+    if (phaseFile.size > maxSizeInBytes.video) {
+      toast.error('Phase file exceeds allowed size limit');
+      return;
+    }
+
     if (isZipArchive(phaseFile) && !phaseVideo) {
       toast.error('A walkthrough video is required for ZIP or RAR uploads');
+      return;
+    }
+
+    if (phaseVideo && phaseVideo.size > maxSizeInBytes.video) {
+      toast.error('Supporting video exceeds allowed size limit');
       return;
     }
 
@@ -96,7 +112,7 @@ const ProjectDetails = () => {
       setPhaseComments('');
       fetchProject();
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Error submitting phase');
+      toast.error(getApiErrorMessage(error, 'Error submitting phase'));
     }
     setPhaseSubmitting(false);
   };
@@ -110,16 +126,27 @@ const ProjectDetails = () => {
       setPhaseReviewFeedback((current) => ({ ...current, [phaseId]: '' }));
       fetchProject();
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Error reviewing phase');
+      toast.error(getApiErrorMessage(error, 'Error reviewing phase'));
     }
     setPhaseReviewBusyId(null);
   };
 
   usePageTitle('Project Details | FYP Management');
 
+  const fetchProject = useCallback(async () => {
+    try {
+      const projectData = await projectService.getProjectById(id);
+      setProject(projectData);
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Error loading project details'));
+      navigate('/');
+    }
+    setLoading(false);
+  }, [id, navigate]);
+
   useEffect(() => {
     fetchProject();
-  }, [id]);
+  }, [fetchProject]);
 
   useEffect(() => {
     if (!project?.phases?.length) {
@@ -131,18 +158,6 @@ const ProjectDetails = () => {
       setSelectedPhaseId(nextActionablePhase._id);
     }
   }, [project]);
-
-  const fetchProject = async () => {
-    try {
-      const projectData = await projectService.getProjectById(id);
-      setProject(projectData);
-      setProgress(projectData.progress);
-    } catch (error) {
-      toast.error('Error loading project details');
-      navigate('/');
-    }
-    setLoading(false);
-  };
 
   const handleDownloadFile = async (filename) => {
     try {
@@ -177,6 +192,12 @@ const ProjectDetails = () => {
       toast.error('Please select a file');
       return;
     }
+
+    if (screenRecordingFile.size > maxSizeInBytes.video) {
+      toast.error('Screen recording exceeds allowed size limit');
+      return;
+    }
+
     try {
       const formData = new FormData();
       formData.append('screenRecording', screenRecordingFile);
@@ -185,7 +206,7 @@ const ProjectDetails = () => {
       setScreenRecordingFile(null);
       fetchProject();
     } catch (error) {
-      toast.error('Error uploading screen recording');
+      toast.error(getApiErrorMessage(error, 'Error uploading screen recording'));
     }
   };
 
@@ -196,7 +217,7 @@ const ProjectDetails = () => {
       setScreenRecordingFeedback('');
       fetchProject();
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Error reviewing screen recording');
+      toast.error(getApiErrorMessage(error, 'Error reviewing screen recording'));
     }
   };
 
@@ -430,6 +451,10 @@ const ProjectDetails = () => {
                 const isLocked = projectPhases.slice(0, index).some((item) => item.status !== 'approved');
                 const canMentorReview = user.role === 'faculty' && project.supervisor && project.supervisor._id === user.id && phase.status === 'submitted';
                 const submittedAtLabel = phase.submission?.submittedAt ? new Date(phase.submission.submittedAt).toLocaleString() : 'Not submitted';
+                const phaseFeedbackEntries = Array.isArray(phase.feedback)
+                  ? phase.feedback.filter((entry) => entry && entry.message)
+                  : [];
+                const legacyPhaseFeedback = typeof phase.feedback === 'string' ? phase.feedback : '';
 
                 return (
                   <article key={phase._id} className={`project-phase-card ${isLocked ? 'project-phase-card-locked' : ''}`}>
@@ -468,10 +493,18 @@ const ProjectDetails = () => {
                       <p className="project-muted">No submission yet.</p>
                     )}
 
-                    {phase.feedback && (
+                    {(legacyPhaseFeedback || phaseFeedbackEntries.length > 0) && (
                       <div className="project-phase-feedback">
                         <span>Mentor feedback</span>
-                        <p>{phase.feedback}</p>
+                        {legacyPhaseFeedback && <p>{legacyPhaseFeedback}</p>}
+                        {phaseFeedbackEntries.map((entry, idx) => (
+                          <div key={entry._id || `${phase._id}-feedback-${idx}`} style={{ marginTop: '8px' }}>
+                            <p style={{ marginBottom: '4px' }}>{entry.message}</p>
+                            <small className="project-muted">
+                              {entry.from?.name || 'Reviewer'} ({entry.role || 'faculty'}) · {entry.timestamp ? new Date(entry.timestamp).toLocaleString() : 'N/A'}
+                            </small>
+                          </div>
+                        ))}
                       </div>
                     )}
 

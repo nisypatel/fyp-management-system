@@ -27,6 +27,5 @@ const phaseTemplateSchema = new mongoose.Schema({
 });
 
 phaseTemplateSchema.index({ order: 1 });
-phaseTemplateSchema.index({ title: 1 }, { unique: true });
 
 module.exports = mongoose.model('PhaseTemplate', phaseTemplateSchema);

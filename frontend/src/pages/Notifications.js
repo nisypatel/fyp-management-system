@@ -1,5 +1,5 @@
 // Purpose: Dedicated page to view and manage all notifications.
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FiArrowLeft, FiTrash2, FiCheckCircle } from 'react-icons/fi';
 import { toast } from 'react-toastify';
@@ -12,29 +12,37 @@ const Notifications = () => {
   const navigate = useNavigate();
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [filter, setFilter] = useState('all'); // all, unread, read
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
   const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false);
 
   usePageTitle('Notifications | FYP Management');
 
-  useEffect(() => {
-    fetchNotifications();
-  }, []);
-
-  const fetchNotifications = async () => {
+  const fetchNotifications = useCallback(async () => {
     try {
-      const data = await notificationService.getNotifications();
+      setError('');
+      const readFilter = filter === 'all' ? undefined : String(filter === 'read');
+      const data = await notificationService.getNotifications({ page, limit: 20, read: readFilter });
       setNotifications(data.notifications || []);
+      setTotalPages(data.totalPages || 1);
     } catch (error) {
-      toast.error('Error loading notifications');
+      setError(error.response?.data?.message || 'Error loading notifications');
     }
     setLoading(false);
-  };
+  }, [page, filter]);
+
+  useEffect(() => {
+    fetchNotifications();
+  }, [fetchNotifications]);
 
   const handleMarkAsRead = async (notificationId) => {
     try {
       await notificationService.markAsRead(notificationId);
-      fetchNotifications();
+      setNotifications((current) => current.map((item) => (
+        item._id === notificationId ? { ...item, isRead: true } : item
+      )));
     } catch (error) {
       toast.error('Error marking notification as read');
     }
@@ -44,7 +52,7 @@ const Notifications = () => {
     try {
       await notificationService.markAllAsRead();
       toast.success('All notifications marked as read');
-      fetchNotifications();
+      setNotifications((current) => current.map((item) => ({ ...item, isRead: true })));
     } catch (error) {
       toast.error('Error marking all as read');
     }
@@ -54,7 +62,7 @@ const Notifications = () => {
     try {
       await notificationService.deleteNotification(notificationId);
       toast.success('Notification deleted');
-      fetchNotifications();
+      setNotifications((current) => current.filter((item) => item._id !== notificationId));
     } catch (error) {
       toast.error('Error deleting notification');
     }
@@ -65,17 +73,13 @@ const Notifications = () => {
       await notificationService.deleteAllNotifications();
       toast.success('All notifications deleted');
       setShowDeleteAllConfirm(false);
-      fetchNotifications();
+      setNotifications([]);
     } catch (error) {
       toast.error('Error deleting notifications');
     }
   };
 
-  const filteredNotifications = notifications.filter((notif) => {
-    if (filter === 'unread') return !notif.isRead;
-    if (filter === 'read') return notif.isRead;
-    return true;
-  });
+  const filteredNotifications = notifications;
 
   const getStatusBadgeColor = (eventType) => {
     const colors = {
@@ -136,25 +140,31 @@ const Notifications = () => {
             <div className="notification-filters">
               <button
                 className={`filter-btn ${filter === 'all' ? 'active' : ''}`}
-                onClick={() => setFilter('all')}
+                onClick={() => { setFilter('all'); setPage(1); }}
               >
                 All ({notifications.length})
               </button>
               <button
                 className={`filter-btn ${filter === 'unread' ? 'active' : ''}`}
-                onClick={() => setFilter('unread')}
+                onClick={() => { setFilter('unread'); setPage(1); }}
               >
                 Unread ({notifications.filter((n) => !n.isRead).length})
               </button>
               <button
                 className={`filter-btn ${filter === 'read' ? 'active' : ''}`}
-                onClick={() => setFilter('read')}
+                onClick={() => { setFilter('read'); setPage(1); }}
               >
                 Read ({notifications.filter((n) => n.isRead).length})
               </button>
             </div>
 
-            {filteredNotifications.length === 0 ? (
+            {error && (
+              <div className="empty-state">
+                <p>{error}</p>
+              </div>
+            )}
+
+            {!error && filteredNotifications.length === 0 ? (
               <div className="empty-state">
                 <p>No notifications</p>
               </div>
@@ -200,6 +210,18 @@ const Notifications = () => {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {!error && totalPages > 1 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '16px' }}>
+                <button className="btn btn-sm btn-outline" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>
+                  Previous
+                </button>
+                <small>Page {page} of {totalPages}</small>
+                <button className="btn btn-sm btn-outline" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>
+                  Next
+                </button>
               </div>
             )}
           </div>

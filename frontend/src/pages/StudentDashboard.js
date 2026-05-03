@@ -1,5 +1,5 @@
 // Purpose: Student dashboard for submitting projects and tracking progress.
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-toastify';
@@ -12,14 +12,16 @@ import DashboardHeader from '../components/ui/DashboardHeader';
 import StatsCard from '../components/ui/StatsCard';
 import StatusBadge from '../components/ui/StatusBadge';
 import EmptyState from '../components/ui/EmptyState';
+import { getApiErrorMessage, hasAllowedExtension, isValidEmail, maxSizeInBytes } from '../utils/validation';
 
 const StudentDashboard = () => {
+  const idCardMaxSize = 5 * 1024 * 1024;
   const { user } = useAuth();
   const navigate = useNavigate();
   const [stats, setStats] = useState({});
   const [projects, setProjects] = useState([]);
   const [teamInvites, setTeamInvites] = useState([]);
-  const [faculty, setTeachers] = useState([]);
+  const [faculty, setFaculty] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
@@ -40,6 +42,15 @@ const StudentDashboard = () => {
   const [pendingProjectId, setPendingProjectId] = useState(null);
   const [pendingSupervisorName, setPendingSupervisorName] = useState('');
   const [supervisorSelectValue, setSupervisorSelectValue] = useState({});
+  const [supervisorDepartmentFilter, setSupervisorDepartmentFilter] = useState('All');
+  const [supervisorSearch, setSupervisorSearch] = useState('');
+  const [verificationStatus, setVerificationStatus] = useState(user?.verificationStatus || 'unverified');
+  const [verificationDomain, setVerificationDomain] = useState('');
+  const [verificationEmailLocalPart, setVerificationEmailLocalPart] = useState('');
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
+  const [otpCode, setOtpCode] = useState('');
+  const [idCardFile, setIdCardFile] = useState(null);
+  const [verificationLoading, setVerificationLoading] = useState(false);
   
   // Add filter logic
   const filteredProjects = projects.filter(project => {
@@ -54,35 +65,72 @@ const StudentDashboard = () => {
     return project.status.toLowerCase() === filterLower;
   });
 
+  const filteredFaculty = faculty.filter((person) => {
+    const departmentMatch =
+      supervisorDepartmentFilter === 'All' ||
+      (person.department || '').toLowerCase() === supervisorDepartmentFilter.toLowerCase();
+
+    const searchValue = supervisorSearch.trim().toLowerCase();
+    const searchMatch =
+      !searchValue ||
+      (person.name || '').toLowerCase().includes(searchValue) ||
+      (person.email || '').toLowerCase().includes(searchValue);
+
+    return departmentMatch && searchMatch;
+  });
+
   usePageTitle('Student Dashboard | FYP Management');
 
-  useEffect(() => {
-    fetchDashboardData();
-  }, []);
-
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = useCallback(async () => {
     try {
-      const [dashboardStats, allProjects, allTeachers, pendingInvites] = await Promise.all([
+      const [dashboardStats, allProjects, allFaculty, pendingInvites, verificationConfig] = await Promise.all([
         userService.getDashboardStats(),
         projectService.getProjects(),
         userService.getFaculty(),
-        projectService.getTeamInvites()
+        projectService.getTeamInvites(),
+        userService.getVerificationConfig()
       ]);
       setStats(dashboardStats);
       setProjects(allProjects);
-      setTeachers(allTeachers);
+      setFaculty(allFaculty);
       setTeamInvites(pendingInvites);
+      setVerificationStatus(verificationConfig.verificationStatus || user?.verificationStatus || 'unverified');
+      setVerificationDomain(verificationConfig.verificationDomain || '');
+      setVerificationEmailLocalPart(
+        verificationConfig.emailLocalPart || ((user?.email || '').split('@')[0] || '')
+      );
     } catch (error) {
       // During logout, protected APIs return 401; avoid unnecessary red toasts.
       if (error.response && error.response.status !== 401) {
         toast.error('Error loading dashboard data');
       }
     }
-  };
+  }, [user]);
+
+  useEffect(() => {
+    fetchDashboardData();
+  }, [fetchDashboardData]);
 
   const handleAddMember = (e) => {
     e.preventDefault();
     const email = emailInput.trim();
+    if (!email) return;
+
+    if (!isValidEmail(email)) {
+      toast.error('Please enter a valid team member email');
+      return;
+    }
+
+    if (email.toLowerCase() === user?.email?.toLowerCase()) {
+      toast.error('You cannot add yourself as a team member');
+      return;
+    }
+
+    if (formData.teamMembers.length >= 4) {
+      toast.error('You can add up to 4 team members');
+      return;
+    }
+
     if (email && !formData.teamMembers.includes(email)) {
       setFormData({ ...formData, teamMembers: [...formData.teamMembers, email] });
       setEmailInput('');
@@ -104,22 +152,60 @@ const StudentDashboard = () => {
   };
 
   const handleFileChange = (e) => {
+    const selectedFile = e.target.files[0];
+
+    if (!selectedFile) {
+      setFormData({
+        ...formData,
+        proposalFile: null
+      });
+      return;
+    }
+
+    const allowedDocumentExt = ['.pdf', '.doc', '.docx', '.ppt', '.pptx'];
+    if (!hasAllowedExtension(selectedFile.name, allowedDocumentExt)) {
+      toast.error('Unsupported proposal format. Please upload PDF, DOC, DOCX, PPT, or PPTX.');
+      return;
+    }
+
+    if (selectedFile.size > maxSizeInBytes.document) {
+      toast.error('Proposal file exceeds 10MB limit');
+      return;
+    }
+
     setFormData({
       ...formData,
-      proposalFile: e.target.files[0]
+      proposalFile: selectedFile
     });
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    if (formData.title.trim().length < 5) {
+      toast.error('Project title must be at least 5 characters');
+      return;
+    }
+
+    if (formData.description.trim().length < 20) {
+      toast.error('Description must be at least 20 characters');
+      return;
+    }
+
+    const technologyItems = formData.technologies.split(',').map((t) => t.trim()).filter(Boolean);
+    if (technologyItems.length === 0) {
+      toast.error('Please provide at least one technology');
+      return;
+    }
+
     setLoading(true);
 
     try {
       const data = new FormData();
-      data.append('title', formData.title);
-      data.append('description', formData.description);
+      data.append('title', formData.title.trim());
+      data.append('description', formData.description.trim());
       data.append('category', formData.category);
-      data.append('technologies', JSON.stringify(formData.technologies.split(',').map(t => t.trim())));
+      data.append('technologies', JSON.stringify(technologyItems));
       
       if (formData.projectType === 'Team Project' && formData.teamMembers.length > 0) {
         data.append('teamMembers', JSON.stringify(formData.teamMembers));
@@ -145,7 +231,7 @@ const StudentDashboard = () => {
       setEmailInput('');
       fetchDashboardData();
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Error submitting project');
+      toast.error(getApiErrorMessage(error, 'Error submitting project'));
     }
     setLoading(false);
   };
@@ -199,6 +285,85 @@ const StudentDashboard = () => {
     }
   };
 
+  const handleStartVerification = async () => {
+    if (!verificationDomain) {
+      toast.error('Verification domain is not configured yet. Please contact admin.');
+      return;
+    }
+
+    if (!verificationEmailLocalPart.trim()) {
+      toast.error('Please enter your college email username');
+      return;
+    }
+
+    try {
+      setVerificationLoading(true);
+      const response = await userService.requestOTPVerification(verificationEmailLocalPart.trim().toLowerCase());
+      const nextStatus = response.verificationStatus || 'otp_pending';
+      setVerificationStatus(nextStatus);
+      if (nextStatus === 'verified') {
+        toast.success('Your account is already verified');
+      } else {
+        toast.success('Verification code sent. You can resend OTP with a different username if needed.');
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to start verification');
+    } finally {
+      setVerificationLoading(false);
+    }
+  };
+
+  const handleVerifyOtp = async () => {
+    try {
+      setVerificationLoading(true);
+      await userService.confirmOTPVerification(otpCode);
+      setVerificationStatus('verified');
+      setOtpCode('');
+      toast.success('OTP verified successfully.');
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Invalid OTP code');
+    } finally {
+      setVerificationLoading(false);
+    }
+  };
+
+  const handleUploadIdCard = async () => {
+    if (!idCardFile) {
+      toast.error('Please select an ID card file');
+      return;
+    }
+
+    try {
+      setVerificationLoading(true);
+      const formData = new FormData();
+      formData.append('idCard', idCardFile);
+      await userService.uploadIDCard(formData);
+      setVerificationStatus('id_pending');
+      setIdCardFile(null);
+      toast.success('ID card uploaded successfully. Awaiting admin review.');
+      fetchDashboardData(); // Refresh user data
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Failed to upload ID card');
+    } finally {
+      setVerificationLoading(false);
+    }
+  };
+
+  const handleIdCardFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file && hasAllowedExtension(file.name, ['jpg', 'jpeg', 'png'])) {
+      if (file.size <= idCardMaxSize) {
+        setIdCardFile(file);
+      } else {
+        toast.error('File size must be less than 5MB');
+        e.target.value = '';
+      }
+    } else {
+      toast.error('Please select a valid JPG, JPEG, or PNG image');
+      e.target.value = '';
+    }
+  };
+
   return (
     <>
       <Navbar />
@@ -224,6 +389,119 @@ const StudentDashboard = () => {
             onClick={() => setStatusFilter('completed')} 
             icon={FiCheckCircle} variant="success" value={stats.completed} label="Completed" />
         </div>
+
+        {/* Verification Card */}
+        {verificationStatus !== 'verified' && (
+          <div className="card" style={{ marginBottom: '1.25rem' }}>
+            <div className="card-header">
+              <h2 className="card-title">Account Verification</h2>
+              <StatusBadge status={verificationStatus === 'unverified' ? 'pending' : verificationStatus === 'otp_pending' ? 'warning' : verificationStatus === 'id_pending' ? 'info' : 'rejected'} />
+            </div>
+            <div className="card-body">
+              {(verificationStatus === 'unverified' || verificationStatus === 'rejected') && (
+                <div className="verification-step" style={{ alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ flex: 1 }}>
+                    <p style={{ marginBottom: '0.5rem' }}>
+                      You need to verify your account to submit projects. Enter your college email username.
+                    </p>
+                    <div className="flex gap-2" style={{ alignItems: 'center' }}>
+                      <input
+                        type="text"
+                        className="form-input"
+                        placeholder="your.username"
+                        value={verificationEmailLocalPart}
+                        onChange={(e) => setVerificationEmailLocalPart(e.target.value.replace(/\s/g, ''))}
+                        style={{ width: '220px' }}
+                      />
+                      <span style={{ color: '#334155', fontWeight: 600 }}>@{verificationDomain || 'domain-not-set'}</span>
+                    </div>
+                  </div>
+                  <button 
+                    className="btn btn-primary" 
+                    onClick={handleStartVerification}
+                    disabled={verificationLoading || !verificationDomain}
+                    style={{ marginLeft: '1rem', alignSelf: 'flex-end' }}
+                  >
+                    {verificationLoading ? 'Sending...' : 'Start Verification'}
+                  </button>
+                </div>
+              )}
+              
+              {verificationStatus === 'otp_pending' && (
+                <div className="verification-step">
+                  <div style={{ marginBottom: '1.5rem', paddingBottom: '1.5rem', borderBottom: '1px solid #e5e7eb' }}>
+                    <p style={{ marginBottom: '0.5rem', fontWeight: 600 }}>Verification email:</p>
+                    <div className="flex gap-2" style={{ alignItems: 'center', marginBottom: '1rem' }}>
+                      <input
+                        type="text"
+                        className="form-input"
+                        placeholder="your.username"
+                        value={verificationEmailLocalPart}
+                        onChange={(e) => setVerificationEmailLocalPart(e.target.value.replace(/\s/g, ''))}
+                        style={{ maxWidth: '220px' }}
+                      />
+                      <span style={{ color: '#334155', fontWeight: 600 }}>@{verificationDomain || 'domain-not-set'}</span>
+                    </div>
+                    <button
+                      className="btn btn-outline"
+                      onClick={handleStartVerification}
+                      disabled={verificationLoading || !verificationDomain}
+                      style={{ width: 'auto' }}
+                    >
+                      {verificationLoading ? 'Sending...' : 'Send OTP'}
+                    </button>
+                  </div>
+                  
+                  <p style={{ marginBottom: '0.5rem', fontWeight: 600 }}>Verification code:</p>
+                  <p style={{ marginBottom: '0.75rem', color: '#64748b', fontSize: '0.9rem' }}>Enter the 6-digit code sent to your college email</p>
+                  <div className="flex gap-2" style={{ alignItems: 'center' }}>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="000000"
+                      value={otpCode}
+                      onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                      maxLength={6}
+                      style={{ maxWidth: '120px' }}
+                    />
+                    <button 
+                      className="btn btn-success" 
+                      onClick={handleVerifyOtp}
+                      disabled={verificationLoading || otpCode.length !== 6}
+                    >
+                      {verificationLoading ? 'Verifying...' : 'Verify OTP'}
+                    </button>
+                  </div>
+                </div>
+              )}
+              
+              {verificationStatus === 'id_pending' && (
+                <div className="verification-step">
+                  <p>Upload a clear photo of your student ID card:</p>
+                  <div className="flex gap-2" style={{ alignItems: 'center' }}>
+                    <input
+                      type="file"
+                      accept=".jpg,.jpeg,.png"
+                      onChange={handleIdCardFileChange}
+                      className="form-input"
+                      style={{ flex: 1 }}
+                    />
+                    <button 
+                      className="btn btn-success" 
+                      onClick={handleUploadIdCard}
+                      disabled={verificationLoading || !idCardFile}
+                    >
+                      {verificationLoading ? 'Uploading...' : 'Upload ID Card'}
+                    </button>
+                  </div>
+                  {idCardFile && (
+                    <p className="text-sm text-muted">Selected: {idCardFile.name}</p>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {teamInvites.length > 0 && (
           <div className="card" style={{ marginBottom: '1.25rem' }}>
@@ -292,6 +570,30 @@ const StudentDashboard = () => {
                 <option value="in-progress">In Progress</option>
                 <option value="completed">Completed</option>
               </select>
+              <select
+                className="form-select"
+                style={{ width: '220px' }}
+                value={supervisorDepartmentFilter}
+                onChange={(e) => setSupervisorDepartmentFilter(e.target.value)}
+              >
+                <option value="All">All Supervisor Departments</option>
+                <option value="Computer Science">Computer Science</option>
+                <option value="Electronics Engineering">Electronics Engineering</option>
+                <option value="Electrical Engineering">Electrical Engineering</option>
+                <option value="Mechanical Engineering">Mechanical Engineering</option>
+                <option value="Civil Engineering">Civil Engineering</option>
+                <option value="Information Technology">Information Technology</option>
+                <option value="Business Administration">Business Administration</option>
+                <option value="Other">Other</option>
+              </select>
+              <input
+                type="text"
+                className="form-input"
+                style={{ width: '220px' }}
+                placeholder="Search supervisors"
+                value={supervisorSearch}
+                onChange={(e) => setSupervisorSearch(e.target.value)}
+              />
             </div>
           </div>
           <div className="card-body">
@@ -330,9 +632,9 @@ const StudentDashboard = () => {
                                 onChange={(e) => handleRequestSupervisor(project._id, e.target.value)}
                               >
                                 <option value="" disabled>Select Supervisor</option>
-                                {faculty.map(faculty => (
+                                {filteredFaculty.map(faculty => (
                                   <option key={faculty._id} value={faculty._id}>
-                                    {faculty.name} ({faculty.department})
+                                    {faculty.name} ({faculty.department}) - {faculty.workload?.loadTag || 'Available'} | Active: {faculty.workload?.activeAssigned ?? 0}
                                   </option>
                                 ))}
                               </select>
@@ -593,6 +895,103 @@ const StudentDashboard = () => {
           </div>
         )}
       </div>
+
+      {/* Verification Modal */}
+      {showVerificationModal && (
+        <div className="modal-overlay" onClick={() => setShowVerificationModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2 className="modal-title">Account Verification</h2>
+              <button className="modal-close" onClick={() => setShowVerificationModal(false)}>
+                ×
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="verification-steps">
+                <div className={`verification-step ${verificationStatus === 'unverified' ? 'active' : verificationStatus === 'otp_pending' || verificationStatus === 'id_pending' || verificationStatus === 'verified' ? 'completed' : ''}`}>
+                  <div className="step-number">1</div>
+                  <div className="step-content">
+                    <h3>Request Verification Code</h3>
+                    <p>Get a verification code sent to your email</p>
+                    {verificationStatus === 'unverified' && (
+                      <button 
+                        className="btn btn-primary" 
+                        onClick={handleStartVerification}
+                        disabled={verificationLoading}
+                      >
+                        {verificationLoading ? 'Sending...' : 'Send Code'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className={`verification-step ${verificationStatus === 'otp_pending' ? 'active' : verificationStatus === 'id_pending' || verificationStatus === 'verified' ? 'completed' : ''}`}>
+                  <div className="step-number">2</div>
+                  <div className="step-content">
+                    <h3>Verify Email</h3>
+                    <p>Enter the 6-digit code from your email</p>
+                    {verificationStatus === 'otp_pending' && (
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          className="form-input"
+                          placeholder="Enter 6-digit code"
+                          value={otpCode}
+                          onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                          maxLength={6}
+                        />
+                        <button 
+                          className="btn btn-success" 
+                          onClick={handleVerifyOtp}
+                          disabled={verificationLoading || otpCode.length !== 6}
+                        >
+                          {verificationLoading ? 'Verifying...' : 'Verify'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className={`verification-step ${verificationStatus === 'id_pending' ? 'active' : verificationStatus === 'verified' ? 'completed' : ''}`}>
+                  <div className="step-number">3</div>
+                  <div className="step-content">
+                    <h3>Upload ID Card</h3>
+                    <p>Upload a clear photo of your student ID card</p>
+                    {verificationStatus === 'id_pending' && (
+                      <div className="flex gap-2">
+                        <input
+                          type="file"
+                          accept=".jpg,.jpeg,.png"
+                          onChange={handleIdCardFileChange}
+                          className="form-input"
+                        />
+                        <button 
+                          className="btn btn-success" 
+                          onClick={handleUploadIdCard}
+                          disabled={verificationLoading || !idCardFile}
+                        >
+                          {verificationLoading ? 'Uploading...' : 'Upload'}
+                        </button>
+                      </div>
+                    )}
+                    {idCardFile && (
+                      <p className="text-sm text-muted">Selected: {idCardFile.name}</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className={`verification-step ${verificationStatus === 'verified' ? 'completed' : ''}`}>
+                  <div className="step-number">✓</div>
+                  <div className="step-content">
+                    <h3>Verification Complete</h3>
+                    <p>Your account is now verified. You can submit projects.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };

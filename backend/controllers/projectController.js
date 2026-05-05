@@ -716,10 +716,12 @@ exports.adminApproval = async (req, res) => {
       });
     }
 
-    if (status === 'approved' && project.supervisorStatus !== 'accepted') {
+    // Allow admin to approve a project even if supervisor hasn't accepted yet.
+    // Only block approval when supervisor has explicitly rejected the request.
+    if (status === 'approved' && project.supervisorStatus === 'rejected') {
       return res.status(400).json({
         success: false,
-        message: 'Project can be approved only after supervisor accepts the request'
+        message: 'Project cannot be approved because supervisor rejected the request'
       });
     }
 

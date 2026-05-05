@@ -14,6 +14,7 @@ const {
   uploadProfileImage
 } = require('../controllers/authController');
 const { protect } = require('../middleware/auth');
+const requireDatabaseConnection = require('../middleware/database');
 const { validateRequest } = require('../middleware/validation');
 const {
   registerValidation,
@@ -36,15 +37,15 @@ const profileImageUpload = multer({
   }
 });
 
-router.post('/register', authRegisterLimiter, registerValidation, validateRequest, register);
-router.post('/login', authLoginLimiter, loginValidation, validateRequest, login);
+router.post('/register', requireDatabaseConnection, authRegisterLimiter, registerValidation, validateRequest, register);
+router.post('/login', requireDatabaseConnection, authLoginLimiter, loginValidation, validateRequest, login);
 router.post('/logout', logout);
-router.get('/me', protect, getMe);
-router.delete('/me', protect, deactivateMyAccount);
-router.put('/updateprofile', protect, updateProfileValidation, validateRequest, updateProfile);
-router.post('/profile-image', protect, profileImageUpload.single('profileImage'), uploadProfileImage);
-router.put('/updatepassword', protect, updatePasswordValidation, validateRequest, updatePassword);
-router.post('/forgotpassword', authForgotPasswordLimiter, forgotPasswordValidation, validateRequest, forgotPassword);
-router.put('/resetpassword/:token', resetPasswordValidation, validateRequest, resetPassword);
+router.get('/me', requireDatabaseConnection, protect, getMe);
+router.delete('/me', requireDatabaseConnection, protect, deactivateMyAccount);
+router.put('/updateprofile', requireDatabaseConnection, protect, updateProfileValidation, validateRequest, updateProfile);
+router.post('/profile-image', requireDatabaseConnection, protect, profileImageUpload.single('profileImage'), uploadProfileImage);
+router.put('/updatepassword', requireDatabaseConnection, protect, updatePasswordValidation, validateRequest, updatePassword);
+router.post('/forgotpassword', requireDatabaseConnection, authForgotPasswordLimiter, forgotPasswordValidation, validateRequest, forgotPassword);
+router.put('/resetpassword/:token', requireDatabaseConnection, resetPasswordValidation, validateRequest, resetPassword);
 
 module.exports = router;

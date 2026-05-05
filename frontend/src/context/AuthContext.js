@@ -43,12 +43,23 @@ export const AuthProvider = ({ children }) => {
         window.location.href = '/login';
       }
     };
+
+    const handleDBUnavailable = (event) => {
+      window.dispatchEvent(new CustomEvent('app:notification', {
+        detail: {
+          type: 'error',
+          message: event.detail?.message || 'Database connection lost. Please try again later.'
+        }
+      }));
+    };
     
     window.addEventListener('storage', handleStorageChange);
     window.addEventListener('auth:session-expired', handleSessionExpired);
+    window.addEventListener('db:unavailable', handleDBUnavailable);
     return () => {
       window.removeEventListener('storage', handleStorageChange);
       window.removeEventListener('auth:session-expired', handleSessionExpired);
+      window.removeEventListener('db:unavailable', handleDBUnavailable);
     };
   }, []);
 
@@ -86,9 +97,11 @@ export const AuthProvider = ({ children }) => {
     } catch (error) {
       console.error('Full Registration Error:', error.response?.data || error);
       const errMsg = error.response?.data?.message || error.message || 'Registration failed';
+      const errors = Array.isArray(error.response?.data?.errors) ? error.response.data.errors : [];
       return { 
         success: false, 
-        message: errMsg 
+        message: errMsg,
+        errors
       };
     }
   };
@@ -100,6 +113,14 @@ export const AuthProvider = ({ children }) => {
       console.error('Logout error', error);
     }
     setUser(null);
+    // Clear all session and storage data
+    localStorage.clear();
+    sessionStorage.clear();
+    document.cookie.split(';').forEach(cookie => {
+      const eqPos = cookie.indexOf('=');
+      const name = eqPos > -1 ? cookie.substr(0, eqPos).trim() : cookie.trim();
+      document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`;
+    });
     triggerSync();
   };
 

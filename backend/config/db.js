@@ -31,10 +31,10 @@ const migrateLegacyCollections = async (db) => {
 
 const connectDB = async () => {
   try {
-    const conn = await mongoose.connect(process.env.MONGO_URI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    });
+    // Mongoose 6+ enables the new parser and unified topology by default.
+    // Avoid passing deprecated driver options to prevent deprecation warnings.
+    mongoose.set('strictQuery', false);
+    const conn = await mongoose.connect(process.env.MONGO_URI);
 
     await migrateLegacyCollections(conn.connection.db);
     await migrateSchema();

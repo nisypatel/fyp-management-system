@@ -63,7 +63,8 @@ const migrateSchema = async () => {
       );
     }
 
-    logger.info('Schema migration completed successfully');
+    // Use debug level so this message is hidden at the default 'info' level
+    logger.debug('Schema migration completed successfully');
   } catch (error) {
     logger.error('Schema migration failed', { message: error.message, stack: error.stack });
   }

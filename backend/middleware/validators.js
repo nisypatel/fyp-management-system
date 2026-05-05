@@ -37,13 +37,17 @@ const passwordRule = body('password')
   .matches(/^(?=.*[A-Za-z])(?=.*\d).+$/)
   .withMessage('Password must include letters and numbers');
 
+const registrationPasswordRule = body('password')
+  .isLength({ min: 8 })
+  .withMessage('Password must be at least 8 characters');
+
 const registerValidation = [
   body('name')
     .trim()
     .isLength({ min: 2, max: 80 })
     .withMessage('Name must be between 2 and 80 characters'),
   emailRule,
-  passwordRule,
+  registrationPasswordRule,
   roleRule,
   body('department')
     .optional()
@@ -51,12 +55,12 @@ const registerValidation = [
     .isLength({ min: 2, max: 120 })
     .withMessage('Department must be between 2 and 120 characters'),
   body('enrollmentNumber')
-    .optional()
+    .optional({ values: 'falsy' })
     .trim()
     .isLength({ min: 3, max: 40 })
     .withMessage('Enrollment number must be between 3 and 40 characters'),
   body('employeeId')
-    .optional()
+    .optional({ values: 'falsy' })
     .trim()
     .isLength({ min: 2, max: 40 })
     .withMessage('Employee ID must be between 2 and 40 characters'),
@@ -276,7 +280,7 @@ const createUserValidation = [
     .isLength({ min: 2, max: 80 })
     .withMessage('Name must be between 2 and 80 characters'),
   emailRule,
-  passwordRule,
+  registrationPasswordRule,
   body('role')
     .trim()
     .toLowerCase()

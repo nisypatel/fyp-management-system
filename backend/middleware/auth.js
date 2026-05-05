@@ -1,9 +1,17 @@
+const mongoose = require('mongoose');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const { normalizeRole } = require('../utils/role');
 
 // Protect routes - verify JWT token
 exports.protect = async (req, res, next) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({
+      success: false,
+      message: 'Database connection is unavailable. Please try again later.'
+    });
+  }
+
   let token;
 
   if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {

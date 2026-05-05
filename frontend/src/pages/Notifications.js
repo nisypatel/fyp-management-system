@@ -112,118 +112,122 @@ const Notifications = () => {
   return (
     <>
       <Navbar />
-      <div className="notifications-container">
-        <button className="btn btn-outline mb-2" onClick={() => navigate(-1)}>
-          <FiArrowLeft /> Back
-        </button>
-
-        <div className="card">
-          <div className="card-header">
-            <div className="flex-between">
-              <h2 className="card-title">Notifications</h2>
-              <div className="notification-actions">
-                {notifications.some((n) => !n.isRead) && (
-                  <button className="btn btn-sm btn-outline" onClick={handleMarkAllAsRead}>
-                    <FiCheckCircle /> Mark all as read
-                  </button>
-                )}
-                {notifications.length > 0 && (
-                  <button className="btn btn-sm btn-outline" onClick={() => setShowDeleteAllConfirm(true)}>
-                    <FiTrash2 /> Delete all
-                  </button>
-                )}
-              </div>
-            </div>
+      <div className="notifications-page">
+        <div className="notifications-container">
+          <div className="notifications-header-bar">
+            <button className="btn btn-outline" onClick={() => navigate(-1)}>
+              <FiArrowLeft /> Back
+            </button>
           </div>
 
-          <div className="card-body">
-            <div className="notification-filters">
-              <button
-                className={`filter-btn ${filter === 'all' ? 'active' : ''}`}
-                onClick={() => { setFilter('all'); setPage(1); }}
-              >
-                All ({notifications.length})
-              </button>
-              <button
-                className={`filter-btn ${filter === 'unread' ? 'active' : ''}`}
-                onClick={() => { setFilter('unread'); setPage(1); }}
-              >
-                Unread ({notifications.filter((n) => !n.isRead).length})
-              </button>
-              <button
-                className={`filter-btn ${filter === 'read' ? 'active' : ''}`}
-                onClick={() => { setFilter('read'); setPage(1); }}
-              >
-                Read ({notifications.filter((n) => n.isRead).length})
-              </button>
+          <div className="card notifications-card">
+            <div className="card-header">
+              <div className="flex-between">
+                <h2 className="card-title">Notifications</h2>
+                <div className="notification-actions">
+                  {notifications.some((n) => !n.isRead) && (
+                    <button className="btn btn-sm btn-outline" onClick={handleMarkAllAsRead}>
+                      <FiCheckCircle /> Mark all as read
+                    </button>
+                  )}
+                  {notifications.length > 0 && (
+                    <button className="btn btn-sm btn-outline" onClick={() => setShowDeleteAllConfirm(true)}>
+                      <FiTrash2 /> Delete all
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
 
-            {error && (
-              <div className="empty-state">
-                <p>{error}</p>
+            <div className="card-body">
+              <div className="notification-filters">
+                <button
+                  className={`filter-btn ${filter === 'all' ? 'active' : ''}`}
+                  onClick={() => { setFilter('all'); setPage(1); }}
+                >
+                  All ({notifications.length})
+                </button>
+                <button
+                  className={`filter-btn ${filter === 'unread' ? 'active' : ''}`}
+                  onClick={() => { setFilter('unread'); setPage(1); }}
+                >
+                  Unread ({notifications.filter((n) => !n.isRead).length})
+                </button>
+                <button
+                  className={`filter-btn ${filter === 'read' ? 'active' : ''}`}
+                  onClick={() => { setFilter('read'); setPage(1); }}
+                >
+                  Read ({notifications.filter((n) => n.isRead).length})
+                </button>
               </div>
-            )}
 
-            {!error && filteredNotifications.length === 0 ? (
-              <div className="empty-state">
-                <p>No notifications</p>
-              </div>
-            ) : (
-              <div className="notifications-list">
-                {filteredNotifications.map((notif) => (
-                  <div key={notif._id} className={`notification-card ${notif.isRead ? 'read' : 'unread'}`}>
-                    <div className="notification-card-body">
-                      <div className="notification-header-row">
-                        <div className="notification-info">
-                          <div className="notification-title-row">
-                            <span
-                              className="event-badge"
-                              style={{ backgroundColor: getStatusBadgeColor(notif.type) }}
-                            >
-                              {notif.type.replace(/_/g, ' ')}
-                            </span>
-                            <h3 className="notification-card-title">{notif.title}</h3>
+              {error && (
+                <div className="empty-state">
+                  <p>{error}</p>
+                </div>
+              )}
+
+              {!error && filteredNotifications.length === 0 ? (
+                <div className="empty-state">
+                  <p>No notifications</p>
+                </div>
+              ) : (
+                <div className="notifications-list">
+                  {filteredNotifications.map((notif) => (
+                    <div key={notif._id} className={`notification-card ${notif.isRead ? 'read' : 'unread'}`}>
+                      <div className="notification-card-body">
+                        <div className="notification-header-row">
+                          <div className="notification-info">
+                            <div className="notification-title-row">
+                              <span
+                                className="event-badge"
+                                style={{ backgroundColor: getStatusBadgeColor(notif.type) }}
+                              >
+                                {notif.type.replace(/_/g, ' ')}
+                              </span>
+                              <h3 className="notification-card-title">{notif.title}</h3>
+                            </div>
+                            <p className="notification-card-message">{notif.message}</p>
+                            <small className="notification-card-time">
+                              {new Date(notif.createdAt).toLocaleString()}
+                            </small>
                           </div>
-                          <p className="notification-card-message">{notif.message}</p>
-                          <small className="notification-card-time">
-                            {new Date(notif.createdAt).toLocaleString()}
-                          </small>
+                          {!notif.isRead && <div className="unread-dot"></div>}
                         </div>
-                        {!notif.isRead && <div className="unread-dot"></div>}
-                      </div>
-                      <div className="notification-card-actions">
-                        {!notif.isRead && (
+                        <div className="notification-card-actions">
+                          {!notif.isRead && (
+                            <button
+                              className="btn btn-sm btn-outline-primary"
+                              onClick={() => handleMarkAsRead(notif._id)}
+                            >
+                              Mark as read
+                            </button>
+                          )}
                           <button
-                            className="btn btn-sm btn-outline-primary"
-                            onClick={() => handleMarkAsRead(notif._id)}
+                            className="btn btn-sm btn-outline-danger"
+                            onClick={() => handleDeleteNotification(notif._id)}
                           >
-                            Mark as read
+                            Delete
                           </button>
-                        )}
-                        <button
-                          className="btn btn-sm btn-outline-danger"
-                          onClick={() => handleDeleteNotification(notif._id)}
-                        >
-                          Delete
-                        </button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
+                  ))}
+                </div>
+              )}
 
-            {!error && totalPages > 1 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '16px' }}>
-                <button className="btn btn-sm btn-outline" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>
-                  Previous
-                </button>
-                <small>Page {page} of {totalPages}</small>
-                <button className="btn btn-sm btn-outline" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>
-                  Next
-                </button>
-              </div>
-            )}
+              {!error && totalPages > 1 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '16px' }}>
+                  <button className="btn btn-sm btn-outline" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>
+                    Previous
+                  </button>
+                  <small>Page {page} of {totalPages}</small>
+                  <button className="btn btn-sm btn-outline" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>
+                    Next
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>

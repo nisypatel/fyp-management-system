@@ -25,7 +25,14 @@ export const hasAllowedExtension = (filename, allowedExts = []) => {
 export const getApiErrorMessage = (error, fallbackMessage) => {
   const data = error?.response?.data;
   if (Array.isArray(data?.errors) && data.errors.length > 0) {
-    return data.errors[0].message;
+    return data.errors
+      .map((item) => item?.message)
+      .filter(Boolean)
+      .join(', ');
   }
   return data?.message || fallbackMessage;
+};
+
+export const isBasicPassword = (value) => {
+  return String(value || '').length >= 8;
 };

@@ -50,7 +50,10 @@ const StudentDashboard = () => {
   const [showVerificationModal, setShowVerificationModal] = useState(false);
   const [otpCode, setOtpCode] = useState('');
   const [idCardFile, setIdCardFile] = useState(null);
-  const [verificationLoading, setVerificationLoading] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  const [isOtpSent, setIsOtpSent] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   
   // Add filter logic
   const filteredProjects = projects.filter(project => {
@@ -94,7 +97,9 @@ const StudentDashboard = () => {
       setProjects(allProjects);
       setFaculty(allFaculty);
       setTeamInvites(pendingInvites);
-      setVerificationStatus(verificationConfig.verificationStatus || user?.verificationStatus || 'unverified');
+      const nextVerificationStatus = verificationConfig.verificationStatus || user?.verificationStatus || 'unverified';
+      setVerificationStatus(nextVerificationStatus);
+      setIsOtpSent(false);
       setVerificationDomain(verificationConfig.verificationDomain || '');
       setVerificationEmailLocalPart(
         verificationConfig.emailLocalPart || ((user?.email || '').split('@')[0] || '')
@@ -297,33 +302,40 @@ const StudentDashboard = () => {
     }
 
     try {
-      setVerificationLoading(true);
+      setIsSending(true);
+      setIsVerifying(false);
       const response = await userService.requestOTPVerification(verificationEmailLocalPart.trim().toLowerCase());
       const nextStatus = response.verificationStatus || 'otp_pending';
       setVerificationStatus(nextStatus);
+      setIsOtpSent(nextStatus === 'otp_pending');
+      setOtpCode('');
       if (nextStatus === 'verified') {
         toast.success('Your account is already verified');
       } else {
         toast.success('Verification code sent. You can resend OTP with a different username if needed.');
       }
     } catch (error) {
+      setIsOtpSent(false);
+      setOtpCode('');
       toast.error(error.response?.data?.message || 'Failed to start verification');
     } finally {
-      setVerificationLoading(false);
+      setIsSending(false);
     }
   };
 
   const handleVerifyOtp = async () => {
     try {
-      setVerificationLoading(true);
+      setIsVerifying(true);
+      setIsSending(false);
       await userService.confirmOTPVerification(otpCode);
       setVerificationStatus('verified');
+      setIsOtpSent(false);
       setOtpCode('');
       toast.success('OTP verified successfully.');
     } catch (error) {
       toast.error(error.response?.data?.message || 'Invalid OTP code');
     } finally {
-      setVerificationLoading(false);
+      setIsVerifying(false);
     }
   };
 
@@ -334,7 +346,7 @@ const StudentDashboard = () => {
     }
 
     try {
-      setVerificationLoading(true);
+      setIsUploading(true);
       const formData = new FormData();
       formData.append('idCard', idCardFile);
       await userService.uploadIDCard(formData);
@@ -345,7 +357,7 @@ const StudentDashboard = () => {
     } catch (error) {
       toast.error(error.response?.data?.message || 'Failed to upload ID card');
     } finally {
-      setVerificationLoading(false);
+      setIsUploading(false);
     }
   };
 
@@ -398,7 +410,7 @@ const StudentDashboard = () => {
               <StatusBadge status={verificationStatus === 'unverified' ? 'pending' : verificationStatus === 'otp_pending' ? 'warning' : verificationStatus === 'id_pending' ? 'info' : 'rejected'} />
             </div>
             <div className="card-body">
-              {(verificationStatus === 'unverified' || verificationStatus === 'rejected') && (
+              {(verificationStatus === 'unverified' || verificationStatus === 'rejected' || verificationStatus === 'otp_pending') && !isOtpSent && (
                 <div className="verification-step" style={{ alignItems: 'center', justifyContent: 'space-between' }}>
                   <div style={{ flex: 1 }}>
                     <p style={{ marginBottom: '0.5rem' }}>
@@ -419,15 +431,15 @@ const StudentDashboard = () => {
                   <button 
                     className="btn btn-primary" 
                     onClick={handleStartVerification}
-                    disabled={verificationLoading || !verificationDomain}
+                    disabled={isSending || isVerifying || !verificationDomain}
                     style={{ marginLeft: '1rem', alignSelf: 'flex-end' }}
                   >
-                    {verificationLoading ? 'Sending...' : 'Start Verification'}
+                    {isSending ? 'Sending...' : 'Start Verification'}
                   </button>
                 </div>
               )}
               
-              {verificationStatus === 'otp_pending' && (
+              {isOtpSent && verificationStatus === 'otp_pending' && (
                 <div className="verification-step">
                   <div style={{ marginBottom: '1.5rem', paddingBottom: '1.5rem', borderBottom: '1px solid #e5e7eb' }}>
                     <p style={{ marginBottom: '0.5rem', fontWeight: 600 }}>Verification email:</p>
@@ -445,10 +457,10 @@ const StudentDashboard = () => {
                     <button
                       className="btn btn-outline"
                       onClick={handleStartVerification}
-                      disabled={verificationLoading || !verificationDomain}
+                      disabled={isSending || isVerifying || !verificationDomain}
                       style={{ width: 'auto' }}
                     >
-                      {verificationLoading ? 'Sending...' : 'Send OTP'}
+                      {isSending ? 'Sending...' : 'Send OTP'}
                     </button>
                   </div>
                   
@@ -467,9 +479,9 @@ const StudentDashboard = () => {
                     <button 
                       className="btn btn-success" 
                       onClick={handleVerifyOtp}
-                      disabled={verificationLoading || otpCode.length !== 6}
+                      disabled={isSending || isVerifying || otpCode.length !== 6}
                     >
-                      {verificationLoading ? 'Verifying...' : 'Verify OTP'}
+                      {isVerifying ? 'Verifying...' : 'Verify OTP'}
                     </button>
                   </div>
                 </div>
@@ -489,9 +501,9 @@ const StudentDashboard = () => {
                     <button 
                       className="btn btn-success" 
                       onClick={handleUploadIdCard}
-                      disabled={verificationLoading || !idCardFile}
+                      disabled={isSending || isVerifying || isUploading || !idCardFile}
                     >
-                      {verificationLoading ? 'Uploading...' : 'Upload ID Card'}
+                      {isUploading ? 'Uploading...' : 'Upload ID Card'}
                     </button>
                   </div>
                   {idCardFile && (
@@ -917,9 +929,9 @@ const StudentDashboard = () => {
                       <button 
                         className="btn btn-primary" 
                         onClick={handleStartVerification}
-                        disabled={verificationLoading}
+                        disabled={isSending || isVerifying}
                       >
-                        {verificationLoading ? 'Sending...' : 'Send Code'}
+                        {isSending ? 'Sending...' : 'Send Code'}
                       </button>
                     )}
                   </div>
@@ -930,7 +942,7 @@ const StudentDashboard = () => {
                   <div className="step-content">
                     <h3>Verify Email</h3>
                     <p>Enter the 6-digit code from your email</p>
-                    {verificationStatus === 'otp_pending' && (
+                    {isOtpSent && verificationStatus === 'otp_pending' && (
                       <div className="flex gap-2">
                         <input
                           type="text"
@@ -943,9 +955,9 @@ const StudentDashboard = () => {
                         <button 
                           className="btn btn-success" 
                           onClick={handleVerifyOtp}
-                          disabled={verificationLoading || otpCode.length !== 6}
+                          disabled={isSending || isVerifying || otpCode.length !== 6}
                         >
-                          {verificationLoading ? 'Verifying...' : 'Verify'}
+                          {isVerifying ? 'Verifying...' : 'Verify'}
                         </button>
                       </div>
                     )}
@@ -968,9 +980,9 @@ const StudentDashboard = () => {
                         <button 
                           className="btn btn-success" 
                           onClick={handleUploadIdCard}
-                          disabled={verificationLoading || !idCardFile}
+                          disabled={isSending || isVerifying || isUploading || !idCardFile}
                         >
-                          {verificationLoading ? 'Uploading...' : 'Upload'}
+                          {isUploading ? 'Uploading...' : 'Upload'}
                         </button>
                       </div>
                     )}

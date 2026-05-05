@@ -12,13 +12,22 @@ const apiClient = axios.create({
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response && error.response.status === 401) {
-      const requestUrl = error.config?.url;
-      const isAuthCheck = requestUrl === '/auth/me' || requestUrl === '/auth/login';
-      const onLoginPage = window.location.pathname === '/login';
+    if (error.response) {
+      // Database unavailable
+      if (error.response.status === 503) {
+        window.dispatchEvent(new CustomEvent('db:unavailable', { 
+          detail: { message: error.response.data?.message || 'Database is unavailable' }
+        }));
+      }
+      // Session expired or invalid token
+      if (error.response.status === 401) {
+        const requestUrl = error.config?.url;
+        const isAuthCheck = requestUrl === '/auth/me' || requestUrl === '/auth/login';
+        const onLoginPage = window.location.pathname === '/login';
 
-      if (!isAuthCheck && !onLoginPage) {
-        window.dispatchEvent(new CustomEvent('auth:session-expired'));
+        if (!isAuthCheck && !onLoginPage) {
+          window.dispatchEvent(new CustomEvent('auth:session-expired'));
+        }
       }
     }
     return Promise.reject(error);

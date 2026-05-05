@@ -487,6 +487,29 @@ For any issues or questions during setup:
 
 ---
 
+## 🗄️ Database migration utility
+
+If you see runtime warnings about duplicate legacy collections (for example, both `phase_templates` and `phasetemplates` exist), a safe helper script is included to back up and merge legacy collections into their target names without deleting data.
+
+- Script: `backend/utils/mergeCollections.js`
+- NPM helper: run from the `backend` folder with `npm run merge:collections`.
+
+Usage (non-destructive):
+```powershell
+$env:MONGO_URI='mongodb://localhost:27017/fyp_management'
+node backend/utils/mergeCollections.js
+```
+
+To also remove legacy collections after you verify backups, set `MERGE_AND_REMOVE=true` before running the script (dangerous — do this only after confirming backups):
+```powershell
+$env:MERGE_AND_REMOVE='true'
+node backend/utils/mergeCollections.js
+```
+
+The script creates backup collections named like `backup_<legacy_collection>_<timestamp>` before attempting insertions.
+
+Note: The MongoDB connection code (`backend/config/db.js`) was updated to avoid deprecated mongoose driver options.
+
 ## ✅ Final Checklist Before Viva
 
 - [ ] Backend server running without errors

@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-toastify';
 import usePageTitle from '../hooks/usePageTitle';
 import { FaEye, FaEyeSlash } from 'react-icons/fa';
-import { isStrongPassword, isValidEmail, isValidPhone } from '../utils/validation';
+import { getApiErrorMessage, isBasicPassword, isValidEmail, isValidPhone } from '../utils/validation';
 
 const Register = () => {
   const [formData, setFormData] = useState({
@@ -40,8 +40,8 @@ const Register = () => {
       return;
     }
 
-    if (!isStrongPassword(formData.password)) {
-      toast.error('Password must be at least 8 characters and include letters and numbers');
+    if (!isBasicPassword(formData.password)) {
+      toast.error('Password must be at least 8 characters');
       return;
     }
 
@@ -71,17 +71,22 @@ const Register = () => {
       ...formData,
       name: trimmedName,
       email: trimmedEmail,
-      enrollmentNumber: formData.enrollmentNumber.trim(),
-      employeeId: formData.employeeId.trim(),
+      enrollmentNumber: formData.role === 'student' ? formData.enrollmentNumber.trim() : undefined,
+      employeeId: formData.role === 'faculty' ? formData.employeeId.trim() : undefined,
       phone: formData.phone.trim()
     };
 
     const result = await register(payload);
     if (result.success) {
       toast.success('Registration successful!');
+      setFormData({
+        name: '', email: '', password: '', confirmPassword: '', role: 'student',
+        department: 'CSE', enrollmentNumber: '', employeeId: '', phone: ''
+      });
       navigate('/');
     } else {
-      toast.error(result.message || 'Registration failed');
+      const message = result.errors?.length ? getApiErrorMessage({ response: { data: { errors: result.errors } } }, result.message) : result.message;
+      toast.error(message || 'Registration failed');
     }
     setLoading(false);
   };
@@ -101,14 +106,14 @@ const Register = () => {
           <div className="auth-card">
             <h1 className="auth-title">Create Account</h1>
             <p className="auth-subtitle">Register for FYP Management</p>
-            <form onSubmit={handleSubmit}>
+            <form onSubmit={handleSubmit} autoComplete="off">
               <div className="form-group">
                 <label className="form-label">Full Name</label>
-                <input type="text" name="name" className="form-input" value={formData.name} onChange={handleChange} required />
+                <input type="text" name="name" className="form-input" value={formData.name} onChange={handleChange} required autoComplete="off" />
               </div>
               <div className="form-group">
                 <label className="form-label">Email</label>
-                <input type="email" name="email" className="form-input" value={formData.email} onChange={handleChange} required />
+                <input type="email" name="email" className="form-input" value={formData.email} onChange={handleChange} required autoComplete="off" />
               </div>
               <div className="form-groups-row">
                 <div className="form-group flex-1">
@@ -130,24 +135,24 @@ const Register = () => {
               {formData.role === 'student' && (
                 <div className="form-group">
                   <label className="form-label">Enrollment Number</label>
-                  <input type="text" name="enrollmentNumber" className="form-input" value={formData.enrollmentNumber} onChange={handleChange} required />
+                  <input type="text" name="enrollmentNumber" className="form-input" value={formData.enrollmentNumber} onChange={handleChange} required autoComplete="off" />
                 </div>
               )}
               {formData.role === 'faculty' && (
                 <div className="form-group">
                   <label className="form-label">Employee ID</label>
-                  <input type="text" name="employeeId" className="form-input" value={formData.employeeId} onChange={handleChange} required />
+                  <input type="text" name="employeeId" className="form-input" value={formData.employeeId} onChange={handleChange} required autoComplete="off" />
                 </div>
               )}
               <div className="form-group">
                 <label className="form-label">Phone</label>
-                <input type="tel" name="phone" className="form-input" value={formData.phone} onChange={handleChange} pattern="[0-9]{10}" />
+                <input type="tel" name="phone" className="form-input" value={formData.phone} onChange={handleChange} pattern="[0-9]{10}" autoComplete="off" />
               </div>
               <div className="form-groups-row">
                 <div className="form-group flex-1">
                   <label className="form-label">Password</label>
                   <div className="password-wrapper">
-                    <input 
+                    <input autoComplete="off" 
                       type={showPassword ? "text" : "password"} 
                       name="password" 
                       className="form-input" 

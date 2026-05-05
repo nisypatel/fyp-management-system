@@ -189,6 +189,7 @@ const AdminDashboard = () => {
       toast.success('User created successfully!');
       setShowUserModal(false);
       resetUserForm();
+      setEditUser(null);
       fetchDashboardData();
     } catch (error) {
       toast.error(error.response?.data?.message || 'Error creating user');
@@ -204,6 +205,7 @@ const AdminDashboard = () => {
       setShowUpdateConfirm(false);
       setShowUserModal(false);
       resetUserForm();
+      setEditUser(null);
       fetchDashboardData();
     } catch (error) {
       toast.error(error.response?.data?.message || 'Error updating user');
@@ -1223,7 +1225,7 @@ const AdminDashboard = () => {
                 </button>
               </div>
               <div className="modal-body">
-                <form onSubmit={handleUserSubmit}>
+                <form onSubmit={handleUserSubmit} autoComplete="off">
                   <div className="form-group">
                     <label className="form-label">Name *</label>
                     <input
@@ -1232,6 +1234,7 @@ const AdminDashboard = () => {
                       value={userForm.name}
                       onChange={(e) => setUserForm({ ...userForm, name: e.target.value })}
                       required
+                      autoComplete="off"
                     />
                   </div>
 
@@ -1243,6 +1246,7 @@ const AdminDashboard = () => {
                       value={userForm.email}
                       onChange={(e) => setUserForm({ ...userForm, email: e.target.value })}
                       required
+                      autoComplete="off"
                     />
                   </div>
 
@@ -1256,6 +1260,7 @@ const AdminDashboard = () => {
                         onChange={(e) => setUserForm({ ...userForm, password: e.target.value })}
                         required
                         minLength={6}
+                        autoComplete="off"
                       />
                     </div>
                   )}
@@ -1302,6 +1307,7 @@ const AdminDashboard = () => {
                         value={userForm.enrollmentNumber}
                         onChange={(e) => setUserForm({ ...userForm, enrollmentNumber: e.target.value })}
                         required
+                        autoComplete="off"
                       />
                     </div>
                   )}
@@ -1315,6 +1321,7 @@ const AdminDashboard = () => {
                         value={userForm.employeeId}
                         onChange={(e) => setUserForm({ ...userForm, employeeId: e.target.value })}
                         required
+                        autoComplete="off"
                       />
                     </div>
                   )}
@@ -1327,6 +1334,7 @@ const AdminDashboard = () => {
                       value={userForm.phone}
                       onChange={(e) => setUserForm({ ...userForm, phone: e.target.value })}
                       pattern="[0-9]{10}"
+                      autoComplete="off"
                     />
                   </div>
 

@@ -1,6 +1,14 @@
 const rateLimit = require('express-rate-limit');
 const { ipKeyGenerator } = rateLimit;
 
+const parseInteger = (value, fallback) => {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+const registerWindowMs = parseInteger(process.env.AUTH_REGISTER_WINDOW_MS, 15 * 60 * 1000);
+const registerMax = parseInteger(process.env.AUTH_REGISTER_MAX, 10);
+
 // Auth endpoints rate limiter - strict (5 requests per 15 minutes)
 const authLoginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -17,9 +25,9 @@ const authLoginLimiter = rateLimit({
 
 // Register limiter - moderate (3 requests per hour)
 const authRegisterLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 3, // 3 requests per windowMs
-  message: 'Too many registration attempts, please try again after an hour',
+  windowMs: registerWindowMs,
+  max: registerMax,
+  message: 'Too many registration attempts, please try again later',
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => {

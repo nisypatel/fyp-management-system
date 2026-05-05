@@ -7,8 +7,9 @@ const bootstrapDatabase = require('./config/bootstrapDb');
 const errorHandler = require('./middleware/error');
 const logger = require('./utils/logger');
 
-// Load env vars
-dotenv.config();
+// Load env vars from this project and override inherited shell values.
+// This prevents stale values like placeholder SMTP settings from winning.
+dotenv.config({ override: true });
 
 const app = express();
 
@@ -33,11 +34,23 @@ app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/files', require('./routes/files'));
 app.use('/api/presets', require('./routes/presets'));
 
-// Health check route
+// Health check route - with strict DB verification
 app.get('/api/health', (req, res) => {
+  const mongoose = require('mongoose');
+  const isDbConnected = mongoose.connection.readyState === 1;
+
+  if (!isDbConnected) {
+    return res.status(503).json({
+      success: false,
+      message: 'API is running but database is not connected',
+      database: 'disconnected'
+    });
+  }
+
   res.status(200).json({
     success: true,
-    message: 'FYP Management System API is running'
+    message: 'FYP Management System API is running',
+    database: 'connected'
   });
 });
 

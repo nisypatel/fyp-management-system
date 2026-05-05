@@ -5,7 +5,6 @@ import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-toastify';
 import usePageTitle from '../hooks/usePageTitle';
 import { FaEye, FaEyeSlash } from 'react-icons/fa';
-import { isValidEmail } from '../utils/validation';
 
 const Login = () => {
   const [formData, setFormData] = useState({ email: '', password: '' });
@@ -24,21 +23,12 @@ const Login = () => {
     e.preventDefault();
 
     const email = formData.email.trim().toLowerCase();
-    if (!isValidEmail(email)) {
-      toast.error('Please enter a valid email address');
-      return;
-    }
-    if (!formData.password) {
-      toast.error('Please enter your password');
-      return;
-    }
-
     setLoading(true);
 
-    // Call context login: backend sets secure cookie, then we route to dashboard.
     const result = await login(email, formData.password);
     if (result.success) {
       toast.success('Login successful!');
+      setFormData({ email: '', password: '' });
       navigate('/');
     } else {
       toast.error(result.message);
@@ -61,10 +51,10 @@ const Login = () => {
           <div className="auth-card">
             <h1 className="auth-title">FYP Management</h1>
             <p className="auth-subtitle">Sign in to your account</p>
-            <form onSubmit={handleSubmit}>
+            <form onSubmit={handleSubmit} autoComplete="off">
               <div className="form-group">
                 <label className="form-label">Email</label>
-                <input type="email" name="email" className="form-input" value={formData.email} onChange={handleChange} required />
+                <input type="text" name="email" className="form-input" value={formData.email} onChange={handleChange} autoComplete="off" />
               </div>
               <div className="form-group">
                 <label className="form-label">Password</label>
@@ -74,8 +64,8 @@ const Login = () => {
                     name="password" 
                     className="form-input" 
                     value={formData.password} 
-                    onChange={handleChange} 
-                    required 
+                    onChange={handleChange}
+                    autoComplete="off" 
                   />
                   <button type="button" className="password-toggle" onClick={() => setShowPassword(!showPassword)} title="Toggle Password Visibility">
                     {showPassword ? <FaEyeSlash /> : <FaEye />}

@@ -77,7 +77,7 @@ tmp/
 temp/
 *.tmp
 .nyc_output/
-build/
+
 
 # Private personal prep notes
 viva_qa.txt

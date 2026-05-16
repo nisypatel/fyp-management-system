@@ -29,6 +29,16 @@ export const projectService = {
     await apiClient.put(`/projects/${projectId}/admin-approval`, { status });
   },
 
+  async adminRemove(projectId, reason) {
+    await apiClient.put(`/projects/${projectId}/admin-remove`, { reason });
+  },
+  async adminRestore(projectId) {
+    await apiClient.put(`/projects/${projectId}/admin-restore`);
+  },
+  async adminDelete(projectId) {
+    await apiClient.delete(`/projects/${projectId}/admin-delete`);
+  },
+
   async supervisorResponse(projectId, status) {
     await apiClient.put(`/projects/${projectId}/supervisor-response`, { status });
   },
@@ -77,7 +87,8 @@ export const projectService = {
       return {
         phases: response.data.data.phases.map((phase, index) => ({
           order: index + 1,
-          title: phase.title
+          title: phase.title,
+          submissionType: phase.submissionType || 'file'
         })),
         updatedAt: response.data.data.updatedAt,
         updatedBy: response.data.data.updatedBy

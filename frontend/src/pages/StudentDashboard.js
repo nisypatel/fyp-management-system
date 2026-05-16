@@ -57,6 +57,8 @@ const StudentDashboard = () => {
   
   // Add filter logic
   const filteredProjects = projects.filter(project => {
+    // Hide removed projects for students
+    if (project.removed && project.removed.at) return false;
     if (statusFilter === 'All') return true;
     
     const filterLower = statusFilter.toLowerCase();
@@ -626,7 +628,7 @@ const StudentDashboard = () => {
                   </thead>
                   <tbody>
                     {filteredProjects.map(project => (
-                      <tr key={project._id}>
+                      <tr key={project._id} className={project.removed?.at ? 'removed-row' : ''}>
                         <td>{project.title}</td>
                         <td>{project.category}</td>
                         <td>
@@ -663,6 +665,11 @@ const StudentDashboard = () => {
                           <StatusBadge status={project.status} />
                           <br />
                           <StatusBadge status={project.adminStatus} prefix="Admin" />
+                          {project.removed?.at && (
+                            <div style={{ marginTop: '6px' }}>
+                              <span className="badge-removed">Removed</span>
+                            </div>
+                          )}
                         </td>
                         <td>
                           <div className="progress-bar">

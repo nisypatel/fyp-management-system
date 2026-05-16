@@ -12,6 +12,11 @@ const phaseTemplateSchema = new mongoose.Schema({
     trim: true,
     default: ''
   },
+  submissionType: {
+    type: String,
+    enum: ['file', 'url', 'text', 'textarea'],
+    default: 'file'
+  },
   order: {
     type: Number,
     required: true,

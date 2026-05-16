@@ -16,6 +16,9 @@ const {
   getPendingProjects,
   getPhaseTemplate,
   updatePhaseTemplate,
+  adminRemoveProject,
+  adminRestoreProject,
+  adminDeleteProject,
   submitPhase,
   evaluatePhase,
   uploadScreenRecording,
@@ -66,6 +69,9 @@ router.route('/:id')
 router.put('/:id/request-supervisor', protect, authorize('student'), requestSupervisorValidation, validateRequest, requestSupervisor);
 router.put('/:id/supervisor-response', protect, authorize('faculty'), supervisorResponseValidation, validateRequest, supervisorResponse);
 router.put('/:id/admin-approval', protect, authorize('admin'), adminApprovalValidation, validateRequest, adminApproval);
+router.put('/:id/admin-remove', protect, authorize('admin'), objectIdRule('id', 'Project id'), validateRequest, adminRemoveProject);
+router.put('/:id/admin-restore', protect, authorize('admin'), objectIdRule('id', 'Project id'), validateRequest, adminRestoreProject);
+router.delete('/:id/admin-delete', protect, authorize('admin'), objectIdRule('id', 'Project id'), validateRequest, adminDeleteProject);
 router.put('/:id/team-invite-response', protect, authorize('student'), teamInviteResponseValidation, validateRequest, respondToTeamInvite);
 router.post('/:id/feedback', protect, authorize('faculty', 'admin'), addFeedbackValidation, validateRequest, addFeedback);
 router.post('/:id/documents', protect, objectIdRule('id', 'Project id'), validateRequest, upload.single('document'), handleMulterError, uploadDocument);

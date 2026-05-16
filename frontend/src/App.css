@@ -811,6 +811,35 @@ tbody tr:hover {
   display: none;
 }
 
+/* Danger modal variation */
+.modal.modal-danger .modal-header {
+  background: linear-gradient(90deg, #ffe9e9, #fff0f0);
+  border-bottom: 1px solid rgba(255,0,0,0.08);
+}
+.modal.modal-danger .modal-title {
+  color: #9b1c1c;
+}
+.modal.modal-danger .btn-danger {
+  background: #c82333;
+  border-color: #bd2130;
+  color: #fff;
+}
+
+/* Removed badge and dimmed row */
+.badge-removed {
+  background: #f8d7da;
+  color: #721c24;
+  border-radius: 999px;
+  padding: 0.25rem 0.5rem;
+  font-weight: 700;
+  font-size: 0.75rem;
+  display: inline-block;
+}
+.removed-row {
+  opacity: 0.6;
+  background: #fff7f7;
+}
+
 .progress-bar {
   height: 8px;
   border-radius: 999px;

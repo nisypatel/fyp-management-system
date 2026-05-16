@@ -2,6 +2,33 @@ const Preset = require('../models/Preset');
 const asyncHandler = require('../middleware/async');
 const ErrorResponse = require('../utils/appError');
 
+const normalizeSubmissionType = (value) => {
+  const allowedTypes = new Set(['file', 'url', 'text', 'textarea']);
+  return allowedTypes.has(String(value || '').trim().toLowerCase()) ? String(value).trim().toLowerCase() : 'file';
+};
+
+const normalizePresetPhases = (phases) => {
+  if (!Array.isArray(phases)) return [];
+
+  return phases
+    .map((phase) => {
+      if (typeof phase === 'string') {
+        const title = phase.trim();
+        return title ? { title, submissionType: 'file' } : null;
+      }
+
+      const title = String(phase?.title || '').trim();
+      if (!title) return null;
+
+      return {
+        title,
+        submissionType: normalizeSubmissionType(phase?.submissionType)
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 20);
+};
+
 // @desc    Get all presets
 // @route   GET /api/presets
 // @access  Private (Admin)
@@ -45,8 +72,9 @@ exports.createPreset = asyncHandler(async (req, res, next) => {
   }
 
   if (req.body.phases && Array.isArray(req.body.phases)) {
-    req.body.phases = req.body.phases.map((phase, index) => ({
+    req.body.phases = normalizePresetPhases(req.body.phases).map((phase, index) => ({
       title: phase.title,
+      submissionType: phase.submissionType,
       order: index + 1
     }));
   }
@@ -72,8 +100,9 @@ exports.updatePreset = asyncHandler(async (req, res, next) => {
   req.body.updatedBy = req.user.id;
 
   if (req.body.phases && Array.isArray(req.body.phases)) {
-    req.body.phases = req.body.phases.map((phase, index) => ({
+    req.body.phases = normalizePresetPhases(req.body.phases).map((phase, index) => ({
       title: phase.title,
+      submissionType: phase.submissionType,
       order: index + 1
     }));
   }

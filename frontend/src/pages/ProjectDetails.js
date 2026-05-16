@@ -34,6 +34,15 @@ const isZipArchive = (file) => {
   return /\.(zip|rar)$/i.test(name);
 };
 
+const SUBMISSION_TYPE_LABELS = {
+  file: 'File upload',
+  url: 'URL',
+  text: 'Text',
+  textarea: 'Description'
+};
+
+const getSubmissionType = (phase) => phase?.submissionType || 'file';
+
 const ProjectDetails = () => {
   const { id } = useParams();
   const { user } = useAuth();
@@ -47,58 +56,107 @@ const ProjectDetails = () => {
   const [phaseFile, setPhaseFile] = useState(null);
   const [phaseVideo, setPhaseVideo] = useState(null);
   const [phaseLink, setPhaseLink] = useState('');
+  const [phaseText, setPhaseText] = useState('');
   const [phaseComments, setPhaseComments] = useState('');
   const [phaseSubmitting, setPhaseSubmitting] = useState(false);
   const [phaseReviewFeedback, setPhaseReviewFeedback] = useState({});
   const [phaseReviewBusyId, setPhaseReviewBusyId] = useState(null);
+  const [showRemoveModal, setShowRemoveModal] = useState(false);
+  const [removeReason, setRemoveReason] = useState('');
+  const [removeBusy, setRemoveBusy] = useState(false);
+
   const handlePhaseSubmit = async (e) => {
     e.preventDefault();
 
     const projectPhases = project?.phases || [];
     const selectedPhase = projectPhases.find((phase) => phase._id === selectedPhaseId);
+    const submissionType = getSubmissionType(selectedPhase);
+    const submissionLabel = SUBMISSION_TYPE_LABELS[submissionType] || 'File upload';
 
     if (!selectedPhase) {
       toast.error('Please select a valid phase');
       return;
     }
 
-    if (!phaseFile) {
-      toast.error('Please upload a file for this phase');
-      return;
-    }
+    if (submissionType === 'file') {
+      if (!phaseFile) {
+        toast.error('Please upload a file for this phase');
+        return;
+      }
 
-    const allowedDocumentExt = ['.pdf', '.doc', '.docx', '.ppt', '.pptx', '.zip', '.rar', '.png', '.jpg', '.jpeg'];
-    if (!hasAllowedExtension(phaseFile.name, allowedDocumentExt)) {
-      toast.error('Unsupported file type for phase submission');
-      return;
-    }
+      const allowedDocumentExt = ['.pdf', '.doc', '.docx', '.ppt', '.pptx', '.zip', '.rar', '.png', '.jpg', '.jpeg'];
+      if (!hasAllowedExtension(phaseFile.name, allowedDocumentExt)) {
+        toast.error('Unsupported file type for phase submission');
+        return;
+      }
 
-    if (phaseFile.size > maxSizeInBytes.video) {
-      toast.error('Phase file exceeds allowed size limit');
-      return;
-    }
+      if (phaseFile.size > maxSizeInBytes.video) {
+        toast.error('Phase file exceeds allowed size limit');
+        return;
+      }
 
-    if (isZipArchive(phaseFile) && !phaseVideo) {
-      toast.error('A walkthrough video is required for ZIP or RAR uploads');
-      return;
-    }
+      if (isZipArchive(phaseFile) && !phaseVideo) {
+        toast.error('A walkthrough video is required for ZIP or RAR uploads');
+        return;
+      }
 
-    if (phaseVideo && phaseVideo.size > maxSizeInBytes.video) {
-      toast.error('Supporting video exceeds allowed size limit');
-      return;
+      if (phaseVideo && phaseVideo.size > maxSizeInBytes.video) {
+        toast.error('Supporting video exceeds allowed size limit');
+        return;
+      }
+
+      if (phaseLink.trim()) {
+        toast.error('This phase does not accept a URL submission');
+        return;
+      }
+
+      if (phaseText.trim()) {
+        toast.error('This phase does not accept a text submission');
+        return;
+      }
+    } else if (submissionType === 'url') {
+      if (!phaseLink.trim()) {
+        toast.error('Please enter a URL for this phase');
+        return;
+      }
+
+      try {
+        // eslint-disable-next-line no-new
+        new URL(phaseLink.trim());
+      } catch (error) {
+        toast.error('Please enter a valid URL');
+        return;
+      }
+    } else if (submissionType === 'text' || submissionType === 'textarea') {
+      if (!phaseText.trim()) {
+        toast.error(`Please enter ${submissionLabel.toLowerCase()} for this phase`);
+        return;
+      }
+
+      if (phaseText.trim().length > 5000) {
+        toast.error('Text submission exceeds allowed length');
+        return;
+      }
     }
 
     setPhaseSubmitting(true);
     try {
       const formData = new FormData();
-      formData.append('document', phaseFile);
 
-      if (phaseVideo) {
-        formData.append('supportingVideo', phaseVideo);
+      if (submissionType === 'file') {
+        formData.append('document', phaseFile);
+
+        if (phaseVideo) {
+          formData.append('supportingVideo', phaseVideo);
+        }
       }
 
-      if (phaseLink.trim()) {
+      if (submissionType === 'url') {
         formData.append('link', phaseLink.trim());
+      }
+
+      if (submissionType === 'text' || submissionType === 'textarea') {
+        formData.append('text', phaseText.trim());
       }
 
       if (phaseComments.trim()) {
@@ -110,6 +168,7 @@ const ProjectDetails = () => {
       setPhaseFile(null);
       setPhaseVideo(null);
       setPhaseLink('');
+      setPhaseText('');
       setPhaseComments('');
       fetchProject();
     } catch (error) {
@@ -160,6 +219,14 @@ const ProjectDetails = () => {
     }
   }, [project]);
 
+  useEffect(() => {
+    setPhaseFile(null);
+    setPhaseVideo(null);
+    setPhaseLink('');
+    setPhaseText('');
+    setPhaseComments('');
+  }, [selectedPhaseId]);
+
   const handleFeedbackSubmit = async (e) => {
     e.preventDefault();
     try {
@@ -207,6 +274,32 @@ const ProjectDetails = () => {
     }
   };
 
+  const handleProjectApproval = async (status) => {
+    try {
+      await projectService.adminApprove(id, status);
+      toast.success(`Project ${status} successfully!`);
+      fetchProject();
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Error updating project'));
+    }
+  };
+
+  const handleAdminRemove = () => setShowRemoveModal(true);
+
+  const confirmRemove = async () => {
+    setRemoveBusy(true);
+    try {
+      await projectService.adminRemove(id, removeReason || '');
+      toast.success('Project removed successfully');
+      setShowRemoveModal(false);
+      navigate('/projects');
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Error removing project'));
+    } finally {
+      setRemoveBusy(false);
+    }
+  };
+
   if (loading) {
     return <div className="loading">Loading...</div>;
   }
@@ -219,6 +312,8 @@ const ProjectDetails = () => {
     (user.role === 'faculty' || user.role === 'admin') &&
     project.codeReview?.status === 'submitted';
 
+  const canReviewProject = user.role === 'admin';
+
   const canUploadScreenRecording =
     user.role === 'student' &&
     user.id === project.student._id &&
@@ -226,11 +321,17 @@ const ProjectDetails = () => {
 
   const canAddFeedback = user.role === 'faculty' || user.role === 'admin';
 
+  const canSubmitPhase =
+    user.role === 'student' &&
+    user.id === project.student._id &&
+    project.status === 'in-progress';
+
   const submittedAt = project.codeReview?.submittedAt
     ? new Date(project.codeReview.submittedAt).toLocaleString()
     : 'Not submitted';
   const projectPhases = project?.phases || [];
   const approvedPhaseCount = projectPhases.filter((phase) => phase.status === 'approved').length;
+  const selectedPhase = projectPhases.find((phase) => phase._id === selectedPhaseId) || null;
 
   return (
     <>
@@ -243,7 +344,19 @@ const ProjectDetails = () => {
         <section className="project-hero">
           <div>
             <p className="project-hero-kicker">Project Workspace</p>
-            <h1 className="project-hero-title">{project.title}</h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <h1 className="project-hero-title" style={{ margin: 0 }}>{project.title}</h1>
+              {project.removed?.at && (
+                <span style={{ display: 'inline-block' }}>
+                  <span className="badge-removed">Removed</span>
+                </span>
+              )}
+            </div>
+            {project.removed?.reason && (
+              <p className="project-muted" style={{ marginTop: '0.5rem' }}>
+                <strong>Removal remark:</strong> {project.removed.reason}
+              </p>
+            )}
             <p className="project-hero-meta">
               <span>{project.category}</span>
               <span>•</span>
@@ -258,6 +371,62 @@ const ProjectDetails = () => {
             {project.supervisorStatus && <StatusBadge status={project.supervisorStatus} prefix="Supervisor" />}
           </div>
         </section>
+
+        {canReviewProject && (
+          <>
+          <section className="project-card project-action-box mt-2">
+            <div className="project-card-header">
+              <h2>Project Approval</h2>
+            </div>
+            <p className="project-muted">
+              Current status: <strong>{project.adminStatus}</strong>. Review the overall project submission and decide whether it should be approved or rejected.
+            </p>
+            {project.adminStatus === 'pending' && (
+              <div className="flex gap-1 mt-1">
+                <button
+                  className="btn btn-success"
+                  onClick={() => handleProjectApproval('approved')}
+                >
+                  Approve
+                </button>
+                <button
+                  className="btn btn-danger"
+                  onClick={() => handleProjectApproval('rejected')}
+                >
+                  Reject
+                </button>
+              </div>
+            )}
+          </section>
+
+          {showRemoveModal && (
+            <div className="modal-overlay" style={{ zIndex: 1050 }} onClick={() => setShowRemoveModal(false)}>
+              <div className="modal" onClick={(e) => e.stopPropagation()}>
+                <div className="modal-header">
+                  <h3 className="modal-title">Remove Project</h3>
+                  <button className="modal-close" onClick={() => setShowRemoveModal(false)}>×</button>
+                </div>
+                <div className="modal-body">
+                  <p>Are you sure you want to remove this project? This action will mark the project as removed and notify the student and supervisor.</p>
+                  <label className="form-label">Reason / Remark (optional)</label>
+                  <textarea
+                    className="form-textarea"
+                    placeholder="Provide an optional reason for audit records"
+                    value={removeReason}
+                    onChange={(e) => setRemoveReason(e.target.value)}
+                    rows={4}
+                    maxLength={1000}
+                  />
+                </div>
+                <div className="modal-footer">
+                  <button className="btn" onClick={() => setShowRemoveModal(false)}>Cancel</button>
+                  <button className="btn btn-danger" onClick={confirmRemove} disabled={removeBusy}>{removeBusy ? 'Removing...' : 'Remove Project'}</button>
+                </div>
+              </div>
+            </div>
+          )}
+          </>
+          )}
 
         <section className="project-card project-people">
           <div className="project-card-header">
@@ -352,6 +521,7 @@ const ProjectDetails = () => {
               </div>
             </div>
 
+            {canSubmitPhase && (
             <div className="project-phase-submit-box">
               <div className="project-phase-submit-header">
                 <div>
@@ -383,44 +553,85 @@ const ProjectDetails = () => {
                   </select>
                 </div>
 
-                <div className="form-group">
-                  <label className="form-label">Phase File</label>
-                  <input
-                    type="file"
-                    className="form-input"
-                    accept=".pdf,.doc,.docx,.ppt,.pptx,.zip,.rar,.png,.jpg,.jpeg"
-                    onChange={(e) => setPhaseFile(e.target.files[0] || null)}
-                    required
-                  />
+                <div className="project-phase-note" style={{ marginBottom: '0.25rem' }}>
+                  Required submission: <strong>{SUBMISSION_TYPE_LABELS[getSubmissionType(selectedPhase)] || 'File upload'}</strong>
                 </div>
 
-                <div className="form-group">
-                  <label className="form-label">Supporting Video</label>
-                  <input
-                    type="file"
-                    className="form-input"
-                    accept="video/*"
-                    onChange={(e) => setPhaseVideo(e.target.files[0] || null)}
-                  />
-                  <p className="project-input-hint">Mandatory for ZIP or RAR submissions.</p>
-                </div>
+                {getSubmissionType(selectedPhase) === 'file' && (
+                  <>
+                    <div className="form-group">
+                      <label className="form-label">Phase File</label>
+                      <input
+                        type="file"
+                        className="form-input"
+                        accept=".pdf,.doc,.docx,.ppt,.pptx,.zip,.rar,.png,.jpg,.jpeg"
+                        onChange={(e) => setPhaseFile(e.target.files[0] || null)}
+                        required
+                      />
+                    </div>
+
+                    <div className="form-group">
+                      <label className="form-label">Supporting Video</label>
+                      <input
+                        type="file"
+                        className="form-input"
+                        accept="video/*"
+                        onChange={(e) => setPhaseVideo(e.target.files[0] || null)}
+                      />
+                      <p className="project-input-hint">Mandatory for ZIP or RAR submissions.</p>
+                    </div>
+                  </>
+                )}
+
+                {getSubmissionType(selectedPhase) === 'url' && (
+                  <div className="form-group">
+                    <label className="form-label">Submission URL</label>
+                    <input
+                      type="url"
+                      className="form-input"
+                      placeholder="Paste a repository, deployment, or demo link"
+                      value={phaseLink}
+                      onChange={(e) => setPhaseLink(e.target.value)}
+                      required
+                    />
+                  </div>
+                )}
+
+                {getSubmissionType(selectedPhase) === 'text' && (
+                  <div className="form-group">
+                    <label className="form-label">Submission Text</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="Enter the required text"
+                      value={phaseText}
+                      onChange={(e) => setPhaseText(e.target.value)}
+                      maxLength={5000}
+                      required
+                    />
+                  </div>
+                )}
+
+                {getSubmissionType(selectedPhase) === 'textarea' && (
+                  <div className="form-group">
+                    <label className="form-label">Submission Description</label>
+                    <textarea
+                      className="form-textarea"
+                      placeholder="Describe your submission"
+                      value={phaseText}
+                      onChange={(e) => setPhaseText(e.target.value)}
+                      maxLength={5000}
+                      rows={6}
+                      required
+                    />
+                  </div>
+                )}
 
                 <div className="form-group">
-                  <label className="form-label">Reference Link</label>
-                  <input
-                    type="url"
-                    className="form-input"
-                    placeholder="Optional demo, drive, or repo link"
-                    value={phaseLink}
-                    onChange={(e) => setPhaseLink(e.target.value)}
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label">Comments</label>
+                  <label className="form-label">Additional Notes</label>
                   <textarea
                     className="form-textarea"
-                    placeholder="Short notes for your mentor"
+                    placeholder="Optional notes for your mentor"
                     value={phaseComments}
                     onChange={(e) => setPhaseComments(e.target.value)}
                   />
@@ -431,6 +642,7 @@ const ProjectDetails = () => {
                 </button>
               </form>
             </div>
+            )}
 
             <div className="project-phase-grid">
               {projectPhases.map((phase, index) => {
@@ -458,59 +670,84 @@ const ProjectDetails = () => {
                           <span>Submitted</span>
                           <strong>{submittedAtLabel}</strong>
                         </div>
-                        <div className="project-phase-meta-row">
-                          <span>File</span>
-                          <div className="project-phase-meta-content">
-                            <strong>{getMeaningfulDocumentName({
-                              original_filename: phase.submission.fileOriginalFilename,
-                              originalName: phase.submission.fileName,
-                              fileName: phase.submission.fileName,
-                              public_id: phase.submission.filePublicId,
-                              secure_url: phase.submission.fileUrl,
-                              format: phase.submission.fileFormat,
-                              resource_type: phase.submission.fileResourceType
-                            })}</strong>
-                            <DocumentActions
-                              file={{
-                                secure_url: phase.submission.fileUrl,
-                                public_id: phase.submission.filePublicId,
-                                original_filename: phase.submission.fileOriginalFilename || phase.submission.fileName,
-                                resource_type: phase.submission.fileResourceType,
-                                format: phase.submission.fileFormat
-                              }}
-                            />
-                          </div>
-                        </div>
-                        {phase.submission.videoName && (
+                        {getSubmissionType(phase) === 'file' && (
+                          <>
+                            <div className="project-phase-meta-row">
+                              <span>File</span>
+                              <div className="project-phase-meta-content">
+                                <strong>{getMeaningfulDocumentName({
+                                  original_filename: phase.submission.fileOriginalFilename,
+                                  originalName: phase.submission.fileName,
+                                  fileName: phase.submission.fileName,
+                                  public_id: phase.submission.filePublicId,
+                                  secure_url: phase.submission.fileUrl,
+                                  format: phase.submission.fileFormat,
+                                  resource_type: phase.submission.fileResourceType
+                                })}</strong>
+                                <DocumentActions
+                                  file={{
+                                    secure_url: phase.submission.fileUrl,
+                                    public_id: phase.submission.filePublicId,
+                                    original_filename: phase.submission.fileOriginalFilename || phase.submission.fileName,
+                                    resource_type: phase.submission.fileResourceType,
+                                    format: phase.submission.fileFormat
+                                  }}
+                                />
+                              </div>
+                            </div>
+                            {phase.submission.videoName && (
+                              <div className="project-phase-meta-row">
+                                <span>Video</span>
+                                <div className="project-phase-meta-content">
+                                  <strong>{getMeaningfulDocumentName({
+                                    original_filename: phase.submission.videoOriginalFilename,
+                                    originalName: phase.submission.videoName,
+                                    fileName: phase.submission.videoName,
+                                    public_id: phase.submission.videoPublicId,
+                                    secure_url: phase.submission.videoUrl,
+                                    format: phase.submission.videoFormat,
+                                    resource_type: phase.submission.videoResourceType
+                                  })}</strong>
+                                  <DocumentActions
+                                    file={{
+                                      secure_url: phase.submission.videoUrl,
+                                      public_id: phase.submission.videoPublicId,
+                                      original_filename: phase.submission.videoOriginalFilename || phase.submission.videoName,
+                                      resource_type: phase.submission.videoResourceType,
+                                      format: phase.submission.videoFormat
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                            )}
+                            {phase.submission.link && (
+                              <a href={phase.submission.link} target="_blank" rel="noreferrer">Open reference link</a>
+                            )}
+                          </>
+                        )}
+
+                        {getSubmissionType(phase) === 'url' && (
                           <div className="project-phase-meta-row">
-                            <span>Video</span>
+                            <span>URL</span>
                             <div className="project-phase-meta-content">
-                              <strong>{getMeaningfulDocumentName({
-                                original_filename: phase.submission.videoOriginalFilename,
-                                originalName: phase.submission.videoName,
-                                fileName: phase.submission.videoName,
-                                public_id: phase.submission.videoPublicId,
-                                secure_url: phase.submission.videoUrl,
-                                format: phase.submission.videoFormat,
-                                resource_type: phase.submission.videoResourceType
-                              })}</strong>
-                              <DocumentActions
-                                file={{
-                                  secure_url: phase.submission.videoUrl,
-                                  public_id: phase.submission.videoPublicId,
-                                  original_filename: phase.submission.videoOriginalFilename || phase.submission.videoName,
-                                  resource_type: phase.submission.videoResourceType,
-                                  format: phase.submission.videoFormat
-                                }}
-                              />
+                              <a href={phase.submission.link || phase.submission.value} target="_blank" rel="noreferrer">
+                                {phase.submission.link || phase.submission.value}
+                              </a>
                             </div>
                           </div>
                         )}
+
+                        {(getSubmissionType(phase) === 'text' || getSubmissionType(phase) === 'textarea') && (
+                          <div className="project-phase-meta-row">
+                            <span>{SUBMISSION_TYPE_LABELS[getSubmissionType(phase)]}</span>
+                            <div className="project-phase-meta-content">
+                              <p className="project-copy" style={{ margin: 0 }}>{phase.submission.value || phase.submission.comments}</p>
+                            </div>
+                          </div>
+                        )}
+
                         {phase.submission.comments && (
                           <p className="project-phase-comments">{phase.submission.comments}</p>
-                        )}
-                        {phase.submission.link && (
-                          <a href={phase.submission.link} target="_blank" rel="noreferrer">Open reference link</a>
                         )}
                       </div>
                     ) : (
@@ -744,6 +981,22 @@ const ProjectDetails = () => {
             )}
           </section>
         </div>
+
+        {canReviewProject && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1rem' }}>
+            <button
+              className="btn btn-outline-danger"
+              onClick={handleAdminRemove}
+              style={{
+                border: '1px solid rgba(220, 53, 69, 0.35)',
+                boxShadow: '0 2px 8px rgba(17, 28, 45, 0.08)',
+                background: '#fff7f8'
+              }}
+            >
+              Remove Project
+            </button>
+          </div>
+        )}
       </div>
     </>
   );

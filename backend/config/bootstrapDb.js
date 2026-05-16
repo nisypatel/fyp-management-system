@@ -8,27 +8,32 @@ const DEFAULT_PHASE_TEMPLATES = [
   {
     title: 'Synopsis',
     order: 1,
-    description: 'Submit the project synopsis and proposed objectives.'
+    description: 'Submit the project synopsis and proposed objectives.',
+    submissionType: 'file'
   },
   {
     title: 'Design/UML',
     order: 2,
-    description: 'Submit architecture, UML diagrams, and system design artifacts.'
+    description: 'Submit architecture, UML diagrams, and system design artifacts.',
+    submissionType: 'file'
   },
   {
     title: 'Frontend',
     order: 3,
-    description: 'Submit the client-side implementation and UI progress.'
+    description: 'Submit the client-side implementation and UI progress.',
+    submissionType: 'file'
   },
   {
     title: 'Backend',
     order: 4,
-    description: 'Submit the server-side implementation and API progress.'
+    description: 'Submit the server-side implementation and API progress.',
+    submissionType: 'file'
   },
   {
     title: 'Testing & Report',
     order: 5,
-    description: 'Submit final testing evidence and project report.'
+    description: 'Submit final testing evidence and project report.',
+    submissionType: 'file'
   }
 ];
 

@@ -25,9 +25,22 @@ const DEPARTMENTS = [
   'Other'
 ];
 
-const createPhaseRow = (title = '') => ({
+const SUBMISSION_TYPE_OPTIONS = [
+  { value: 'file', label: 'File upload' },
+  { value: 'url', label: 'URL' },
+  { value: 'text', label: 'Text' },
+  { value: 'textarea', label: 'Textarea / description' }
+];
+
+const normalizeSubmissionType = (value) => {
+  const allowedTypes = new Set(SUBMISSION_TYPE_OPTIONS.map((option) => option.value));
+  return allowedTypes.has(value) ? value : 'file';
+};
+
+const createPhaseRow = (title = '', submissionType = 'file') => ({
   id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-  title
+  title,
+  submissionType: normalizeSubmissionType(submissionType)
 });
 
 const AdminDashboard = () => {
@@ -135,7 +148,7 @@ const AdminDashboard = () => {
       } else if (activeTab === 'phases') {
         setPhaseTemplateLoading(true);
         const response = await projectService.getPhaseTemplate();
-        const rows = (response.phases || []).map((phase) => createPhaseRow(phase.title));
+        const rows = (response.phases || []).map((phase) => createPhaseRow(phase.title, phase.submissionType));
         setPhaseTemplate(rows.length ? rows : [createPhaseRow('Phase 1')]);
         setPhaseTemplateLoading(false);
       } else if (activeTab === 'presets') {
@@ -175,6 +188,28 @@ const AdminDashboard = () => {
       toast.error(error.response?.data?.message || 'Error updating project');
     }
     setLoading(false);
+  };
+
+  const handleRestoreProject = async (projectId) => {
+    try {
+      await projectService.adminRestore(projectId);
+      toast.success('Project restored successfully');
+      fetchDashboardData();
+    } catch (error) {
+      toast.error('Error restoring project');
+    }
+  };
+
+  const handleDeleteProject = async (projectId) => {
+    const ok = window.confirm('Permanently delete this project? This action is irreversible.');
+    if (!ok) return;
+    try {
+      await projectService.adminDelete(projectId);
+      toast.success('Project deleted permanently');
+      fetchDashboardData();
+    } catch (error) {
+      toast.error('Error deleting project');
+    }
   };
 
   const handleUserSubmit = async (e) => {
@@ -273,7 +308,7 @@ const AdminDashboard = () => {
     setPresetName(preset.name);
     setPresetPhases(
       (preset.phases || []).map((phase, index) =>
-        createPhaseRow(phase.title || `Phase ${index + 1}`)
+        createPhaseRow(phase.title || `Phase ${index + 1}`, phase.submissionType)
       )
     );
     setShowPresetModal(true);
@@ -309,6 +344,12 @@ const AdminDashboard = () => {
     setPresetPhases(prev => prev.map((phase) => (phase.id === id ? { ...phase, title: value } : phase)));
   };
 
+  const handlePresetPhaseSubmissionTypeChange = (id, submissionType) => {
+    setPresetPhases(prev => prev.map((phase) => (
+      phase.id === id ? { ...phase, submissionType: normalizeSubmissionType(submissionType) } : phase
+    )));
+  };
+
   const handleSavePreset = async (e) => {
     e.preventDefault();
     if (!presetName.trim()) {
@@ -320,7 +361,10 @@ const AdminDashboard = () => {
     try {
       const payload = {
         name: presetName.trim(),
-        phases: presetPhases.map((phase) => ({ title: phase.title || 'Untitled Phase' }))
+        phases: presetPhases.map((phase) => ({
+          title: phase.title || 'Untitled Phase',
+          submissionType: normalizeSubmissionType(phase.submissionType)
+        }))
       };
 
       if (editingPreset) {
@@ -418,6 +462,12 @@ const AdminDashboard = () => {
     setPhaseTemplate((current) => current.map((phase) => (phase.id === id ? { ...phase, title } : phase)));
   };
 
+  const updatePhaseSubmissionType = (id, submissionType) => {
+    setPhaseTemplate((current) => current.map((phase) => (
+      phase.id === id ? { ...phase, submissionType: normalizeSubmissionType(submissionType) } : phase
+    )));
+  };
+
   const addPhaseRow = () => {
     setPhaseTemplate((current) => [...current, createPhaseRow(`Phase ${current.length + 1}`)]);
   };
@@ -447,7 +497,12 @@ const AdminDashboard = () => {
   };
 
   const savePhaseTemplate = async () => {
-    const payload = phaseTemplate.map((phase) => ({ title: phase.title.trim() })).filter((phase) => phase.title);
+    const payload = phaseTemplate
+      .map((phase) => ({
+        title: phase.title.trim(),
+        submissionType: normalizeSubmissionType(phase.submissionType)
+      }))
+      .filter((phase) => phase.title);
 
     if (!payload.length) {
       toast.error('Please keep at least one valid phase title');
@@ -463,7 +518,7 @@ const AdminDashboard = () => {
     setSavingPhaseTemplate(true);
     try {
       const response = await projectService.updatePhaseTemplate(payload);
-      const rows = (response.phases || []).map((phase) => createPhaseRow(phase.title));
+      const rows = (response.phases || []).map((phase) => createPhaseRow(phase.title, phase.submissionType));
       setPhaseTemplate(rows);
       toast.success('Phase template updated successfully');
     } catch (error) {
@@ -733,7 +788,7 @@ const AdminDashboard = () => {
                       {filteredProjects.length === 0 ? (
                         <tr><td colSpan="7" style={{textAlign: "center", padding: "2rem"}}>No projects found.</td></tr>
                       ) : filteredProjects.map(project => (
-                        <tr key={project._id}>
+                        <tr key={project._id} className={project.removed?.at ? 'removed-row' : ''}>
                           <td>
                             {project.student.name}
                             <br />
@@ -754,6 +809,11 @@ const AdminDashboard = () => {
                           <td>{project.category}</td>
                           <td>
                             <StatusBadge status={project.status} />
+                            {project.removed?.at && (
+                              <div style={{ marginTop: '6px' }}>
+                                <span className="badge-removed">Removed</span>
+                              </div>
+                            )}
                           </td>
                           <td>
                             <StatusBadge status={project.adminStatus} />
@@ -779,6 +839,24 @@ const AdminDashboard = () => {
                                     Reject
                                   </button>
                                 </>
+                              )}
+                              {project.removed?.at && (
+                                <button
+                                  className="btn btn-sm btn-success"
+                                  onClick={() => handleRestoreProject(project._id)}
+                                  style={{ minWidth: '70px', marginLeft: '6px' }}
+                                >
+                                  Restore
+                                </button>
+                              )}
+                              {project.removed?.at && (
+                                <button
+                                  className="btn btn-sm btn-danger"
+                                  onClick={() => handleDeleteProject(project._id)}
+                                  style={{ minWidth: '70px', marginLeft: '6px' }}
+                                >
+                                  Delete
+                                </button>
                               )}
                               <button
                                 className="btn btn-sm btn-outline"
@@ -907,7 +985,7 @@ const AdminDashboard = () => {
                       </div>
 
                       {phaseTemplate.map((phase, index) => (
-                        <div key={phase.id} style={{ display: 'grid', gridTemplateColumns: '40px 1fr auto', gap: '10px', alignItems: 'center', marginBottom: '10px' }}>
+                        <div key={phase.id} style={{ display: 'grid', gridTemplateColumns: '40px minmax(0, 1fr) minmax(180px, 220px) auto', gap: '10px', alignItems: 'center', marginBottom: '10px' }}>
                           <span className="badge badge-secondary">{index + 1}</span>
                           <input
                             type="text"
@@ -917,6 +995,17 @@ const AdminDashboard = () => {
                             placeholder={`Phase ${index + 1} title`}
                             maxLength={100}
                           />
+                          <select
+                            className="form-select"
+                            value={phase.submissionType || 'file'}
+                            onChange={(e) => updatePhaseSubmissionType(phase.id, e.target.value)}
+                          >
+                            {SUBMISSION_TYPE_OPTIONS.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
                           <div className="flex gap-1" style={{ flexWrap: 'nowrap' }}>
                             <button
                               type="button"
@@ -1158,14 +1247,27 @@ const AdminDashboard = () => {
                   {presetPhases.map((phase, index) => (
                     <div className="form-group" key={phase.id}>
                       <label className="form-label">Phase Title</label>
-                      <div className="flex gap-2" style={{ alignItems: 'center' }}>
+                      <div className="flex gap-2" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
                         <input
                           type="text"
                           className="form-input"
                           value={phase.title}
                           onChange={(e) => handlePresetPhaseChange(phase.id, e.target.value)}
                           required
+                          style={{ flex: '1 1 280px', minWidth: '220px' }}
                         />
+                        <select
+                          className="form-select"
+                          value={phase.submissionType || 'file'}
+                          onChange={(e) => handlePresetPhaseSubmissionTypeChange(phase.id, e.target.value)}
+                          style={{ flex: '0 0 220px', minWidth: '200px' }}
+                        >
+                          {SUBMISSION_TYPE_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
                         <button
                           type="button"
                           className="btn btn-sm btn-outline"

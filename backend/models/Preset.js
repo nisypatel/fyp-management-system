@@ -1,5 +1,10 @@
 const mongoose = require('mongoose');
 
+const normalizeSubmissionType = (value) => {
+  const allowedTypes = new Set(['file', 'url', 'text', 'textarea']);
+  return allowedTypes.has(value) ? value : 'file';
+};
+
 const presetSchema = new mongoose.Schema(
   {
     name: {
@@ -15,6 +20,11 @@ const presetSchema = new mongoose.Schema(
           required: true,
           trim: true,
           maxlength: [100, 'Phase title cannot exceed 100 characters']
+        },
+        submissionType: {
+          type: String,
+          enum: ['file', 'url', 'text', 'textarea'],
+          default: 'file'
         },
         order: {
           type: Number,
@@ -72,6 +82,7 @@ presetSchema.pre('save', async function(next) {
   if (Array.isArray(this.phases) && this.phases.length) {
     this.phases = this.phases.map((phase, index) => ({
       title: phase.title,
+      submissionType: normalizeSubmissionType(phase.submissionType),
       order: index + 1
     }));
   }
@@ -97,6 +108,7 @@ presetSchema.pre('findOneAndUpdate', function(next) {
   if (update && update.phases && Array.isArray(update.phases)) {
     update.phases = update.phases.map((phase, index) => ({
       title: phase.title,
+      submissionType: normalizeSubmissionType(phase.submissionType),
       order: index + 1
     }));
     this.setUpdate(update);

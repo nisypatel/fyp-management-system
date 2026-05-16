@@ -10,6 +10,7 @@ const { sanitizeText } = require('../utils/sanitize');
 const { appendAuditEntry, buildAuditEntry, MAX_AUDIT_ENTRIES } = require('../utils/auditTrail');
 const { executeInTransaction, withSession } = require('../utils/transaction');
 const { uploadFileToCloudinary, buildDynamicCloudinaryFolder, buildCloudinaryPreviewUrl } = require('../utils/cloudinary');
+const { deleteFromCloudinary } = require('../utils/cloudinary');
 
 const isStudentInActiveProject = async (studentId, excludeProjectId = null, session = null) => {
   const query = {
@@ -88,37 +89,58 @@ const isZipFile = (file) => {
   return extension === '.zip' || extension === '.rar';
 };
 
-const normalizePhaseTitles = (rawPhases) => {
+const allowedSubmissionTypes = new Set(['file', 'url', 'text', 'textarea']);
+
+const normalizeSubmissionType = (value) => {
+  if (typeof value !== 'string') return 'file';
+  const normalized = value.trim().toLowerCase();
+  return allowedSubmissionTypes.has(normalized) ? normalized : 'file';
+};
+
+const normalizePhaseDefinitions = (rawPhases) => {
   if (!Array.isArray(rawPhases)) return [];
 
   const normalized = rawPhases
     .map((phase) => {
-      if (typeof phase === 'string') return phase.trim();
-      if (phase && typeof phase.title === 'string') return phase.title.trim();
-      return '';
+      if (typeof phase === 'string') {
+        const title = phase.trim();
+        return title ? { title, submissionType: 'file' } : null;
+      }
+
+      if (phase && typeof phase.title === 'string') {
+        const title = phase.title.trim();
+        if (!title) return null;
+
+        return {
+          title,
+          submissionType: normalizeSubmissionType(phase.submissionType)
+        };
+      }
+
+      return null;
     })
     .filter(Boolean)
     .slice(0, 20);
 
   const seen = new Set();
-  return normalized.filter((title) => {
-    const key = title.toLowerCase();
+  return normalized.filter((phase) => {
+    const key = phase.title.toLowerCase();
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
 };
 
-const buildProjectPhases = (phaseTitles) =>
-  phaseTitles.map((title) => ({
-    title,
+const buildProjectPhases = (phaseDefinitions) =>
+  phaseDefinitions.map((phase) => ({
+    title: phase.title,
+    submissionType: normalizeSubmissionType(phase.submissionType),
     status: 'pending'
   }));
 
 const getConfiguredPhaseTemplate = async () => {
   const preset = await Preset.findOne({ isActive: true });
-  const configuredTitles = normalizePhaseTitles(preset?.phases || []);
-  return configuredTitles;
+  return normalizePhaseDefinitions(preset?.phases || []);
 };
 
 // @desc    Get active preset phases
@@ -134,9 +156,10 @@ exports.getPhaseTemplate = async (req, res) => {
       });
     }
 
-    const phases = normalizePhaseTitles(preset.phases || []).map((title, index) => ({
+    const phases = normalizePhaseDefinitions(preset.phases || []).map((phase, index) => ({
       order: index + 1,
-      title
+      title: phase.title,
+      submissionType: phase.submissionType
     }));
 
     res.status(200).json({
@@ -159,18 +182,26 @@ exports.getPhaseTemplate = async (req, res) => {
 exports.updatePhaseTemplate = async (req, res) => {
   try {
     const sanitizedPhases = Array.isArray(req.body.phases)
-      ? req.body.phases.map((phase) => (typeof phase === 'string' ? sanitizeText(phase) : { ...phase, title: sanitizeText(phase.title || '') }))
+      ? req.body.phases.map((phase) => (
+        typeof phase === 'string'
+          ? { title: sanitizeText(phase), submissionType: 'file' }
+          : {
+              ...phase,
+              title: sanitizeText(phase.title || ''),
+              submissionType: normalizeSubmissionType(phase.submissionType)
+            }
+      ))
       : req.body.phases;
-    const normalizedTitles = normalizePhaseTitles(sanitizedPhases);
+    const normalizedPhases = normalizePhaseDefinitions(sanitizedPhases);
 
-    if (!normalizedTitles.length) {
+    if (!normalizedPhases.length) {
       return res.status(400).json({
         success: false,
         message: 'Please provide at least one valid phase title'
       });
     }
 
-    if (normalizedTitles.some((title) => title.length > 100)) {
+    if (normalizedPhases.some((phase) => phase.title.length > 100)) {
       return res.status(400).json({
         success: false,
         message: 'Each phase title must be 100 characters or less'
@@ -185,19 +216,26 @@ exports.updatePhaseTemplate = async (req, res) => {
       });
     }
 
-    preset.phases = normalizedTitles.map((title) => ({ title }));
+    preset.phases = normalizedPhases.map((phase) => ({
+      title: phase.title,
+      submissionType: phase.submissionType
+    }));
     preset.updatedBy = req.user.id;
     preset.changeHistory.push({
       changedBy: req.user.id,
       action: 'Updated',
-      changes: `Configured ${normalizedTitles.length} phases`
+      changes: `Configured ${normalizedPhases.length} phases`
     });
 
     await preset.save();
 
     res.status(200).json({
       success: true,
-      phases: normalizedTitles.map((title, index) => ({ order: index + 1, title })),
+      phases: normalizedPhases.map((phase, index) => ({
+        order: index + 1,
+        title: phase.title,
+        submissionType: phase.submissionType
+      })),
       updatedAt: preset.updatedAt,
       updatedBy: preset.updatedBy
     });
@@ -218,9 +256,9 @@ exports.createProject = async (req, res) => {
     const sanitizedTitle = sanitizeText(title || '');
     const sanitizedDescription = sanitizeText(description || '');
     const sanitizedCategory = sanitizeText(category || '');
-    const phaseTitles = await getConfiguredPhaseTemplate();
+    const phaseDefinitions = await getConfiguredPhaseTemplate();
 
-    if (!phaseTitles.length) {
+    if (!phaseDefinitions.length) {
       return res.status(400).json({
         success: false,
         message: 'Admin must configure project phases before project creation'
@@ -276,7 +314,7 @@ exports.createProject = async (req, res) => {
         description: sanitizedDescription,
         category: sanitizedCategory,
         technologies: parsedTechnologies,
-        phases: buildProjectPhases(phaseTitles),
+        phases: buildProjectPhases(phaseDefinitions),
         presetId: activePreset._id,
         teamMembers: [],
         student: req.user.id,
@@ -437,6 +475,10 @@ exports.getProjects = async (req, res) => {
     } else if (req.user.role === 'faculty') {
       query.supervisor = req.user.id;
     }
+    // Hide removed projects for non-admin users
+    if (req.user.role !== 'admin') {
+      query['removed.at'] = { $exists: false };
+    }
     // Admin sees all projects
 
     if (q && q.trim()) {
@@ -511,6 +553,11 @@ exports.getProject = async (req, res) => {
         success: false,
         message: 'Project not found'
       });
+    }
+
+    // If project is removed, only admins can access it
+    if (project.removed && project.removed.at && req.user.role !== 'admin') {
+      return res.status(404).json({ success: false, message: 'Project not found' });
     }
 
     // Check authorization
@@ -790,6 +837,193 @@ exports.adminApproval = async (req, res) => {
       success: false,
       message: 'An error occurred. Please try again.'
     });
+  }
+};
+
+// @desc    Admin remove project (soft delete) with reason
+// @route   PUT /api/projects/:id/admin-remove
+// @access  Private (Admin)
+exports.adminRemoveProject = async (req, res) => {
+  try {
+    const reason = sanitizeText(req.body.reason || '');
+
+    const project = await Project.findById(req.params.id);
+    if (!project) {
+      return res.status(404).json({ success: false, message: 'Project not found' });
+    }
+
+    if (project.removed && project.removed.at) {
+      return res.status(400).json({ success: false, message: 'Project has already been removed' });
+    }
+
+    project.removed = {
+      by: req.user.id,
+      at: new Date(),
+      reason: reason || 'Removed by admin'
+    };
+
+    // Mark as rejected to ensure it's not considered active
+    project.status = 'rejected';
+    project.adminStatus = 'rejected';
+
+    appendAuditEntry(project, {
+      userId: req.user.id,
+      action: 'project_removed',
+      changes: `Removed project. Reason: ${reason || 'No reason provided'}`
+    });
+
+    await project.save();
+
+    // Notify student
+    await createNotification(
+      project.student,
+      req.user.id,
+      'project_removed',
+      'Project Removed',
+      `Your project "${project.title}" was removed by admin${reason ? `: ${reason}` : ''}`,
+      project._id
+    );
+
+    // Notify supervisor if exists
+    if (project.supervisor) {
+      await createNotification(
+        project.supervisor,
+        req.user.id,
+        'project_removed',
+        'Project Removed',
+        `Project "${project.title}" was removed by admin${reason ? `: ${reason}` : ''}`,
+        project._id
+      );
+    }
+
+    res.status(200).json({ success: true, project });
+  } catch (error) {
+    res.status(400).json({ success: false, message: 'An error occurred. Please try again.' });
+  }
+};
+
+// @desc    Admin restore project (undo soft remove)
+// @route   PUT /api/projects/:id/admin-restore
+// @access  Private (Admin)
+exports.adminRestoreProject = async (req, res) => {
+  try {
+    const project = await Project.findById(req.params.id);
+    if (!project) {
+      return res.status(404).json({ success: false, message: 'Project not found' });
+    }
+
+    if (!project.removed || !project.removed.at) {
+      return res.status(400).json({ success: false, message: 'Project is not removed' });
+    }
+
+    project.removed = null;
+
+    appendAuditEntry(project, {
+      userId: req.user.id,
+      action: 'project_restored',
+      changes: 'Project restored by admin'
+    });
+
+    await project.save();
+
+    // Notify student
+    await createNotification(
+      project.student,
+      req.user.id,
+      'project_restored',
+      'Project Restored',
+      `Your project "${project.title}" has been restored by admin`,
+      project._id
+    );
+
+    if (project.supervisor) {
+      await createNotification(
+        project.supervisor,
+        req.user.id,
+        'project_restored',
+        'Project Restored',
+        `Project "${project.title}" has been restored by admin`,
+        project._id
+      );
+    }
+
+    res.status(200).json({ success: true, project });
+  } catch (error) {
+    res.status(400).json({ success: false, message: 'An error occurred. Please try again.' });
+  }
+};
+
+// @desc    Admin permanently delete a project (irreversible)
+// @route   DELETE /api/projects/:id/admin-delete
+// @access  Private (Admin)
+exports.adminDeleteProject = async (req, res) => {
+  try {
+    const project = await Project.findById(req.params.id);
+    if (!project) {
+      return res.status(404).json({ success: false, message: 'Project not found' });
+    }
+
+    // Attempt to delete associated Cloudinary assets (best-effort)
+    const candidatePublicIds = [];
+    if (project.proposalFile && project.proposalFile.public_id) candidatePublicIds.push(project.proposalFile.public_id);
+    if (project.codeReview && project.codeReview.screenRecording && project.codeReview.screenRecording.public_id) candidatePublicIds.push(project.codeReview.screenRecording.public_id);
+
+    // Documents
+    if (Array.isArray(project.documents)) {
+      for (const doc of project.documents) {
+        if (doc && doc.public_id) candidatePublicIds.push(doc.public_id);
+      }
+    }
+
+    // Phases submissions (files + videos)
+    if (Array.isArray(project.phases)) {
+      for (const phase of project.phases) {
+        const sub = phase.submission || {};
+        if (sub.filePublicId) candidatePublicIds.push(sub.filePublicId);
+        if (sub.videoPublicId) candidatePublicIds.push(sub.videoPublicId);
+        // older keys
+        if (sub.filePublicId === undefined && sub.filePublic_id) candidatePublicIds.push(sub.filePublic_id);
+        if (sub.videoPublicId === undefined && sub.videoPublic_id) candidatePublicIds.push(sub.videoPublic_id);
+      }
+    }
+
+    // Deduplicate and remove falsy
+    const uniquePublicIds = Array.from(new Set(candidatePublicIds.filter(Boolean)));
+    for (const pid of uniquePublicIds) {
+      try {
+        await deleteFromCloudinary(pid, { resource_type: 'auto' });
+        logger.info('Deleted cloudinary asset', { public_id: pid });
+      } catch (delErr) {
+        logger.error('Failed to delete cloudinary asset', { public_id: pid, message: delErr.message });
+      }
+    }
+
+    // Notify student and supervisor before deletion
+    await createNotification(
+      project.student,
+      req.user.id,
+      'project_deleted',
+      'Project Deleted',
+      `Your project "${project.title}" has been permanently deleted by admin`,
+      project._id
+    );
+
+    if (project.supervisor) {
+      await createNotification(
+        project.supervisor,
+        req.user.id,
+        'project_deleted',
+        'Project Deleted',
+        `Project "${project.title}" has been permanently deleted by admin`,
+        project._id
+      );
+    }
+
+    await Project.deleteOne({ _id: project._id });
+
+    res.status(200).json({ success: true, message: 'Project permanently deleted' });
+  } catch (error) {
+    res.status(400).json({ success: false, message: 'An error occurred. Please try again.' });
   }
 };
 
@@ -1251,21 +1485,13 @@ exports.getPendingProjects = async (req, res) => {
 // @access  Private (Student)
 exports.submitPhase = async (req, res) => {
   try {
-    const { link, comments } = req.body;
+    const { link, comments, text } = req.body;
+    const submittedLink = typeof link === 'string' ? link.trim() : '';
+    const submittedComments = typeof comments === 'string' ? comments.trim() : '';
+    const submittedText = typeof text === 'string' ? text.trim() : '';
 
     const uploadedDocument = req.files?.document?.[0] || null;
     const uploadedVideo = req.files?.supportingVideo?.[0] || null;
-
-    if (!uploadedDocument) {
-      return res.status(400).json({ success: false, message: 'Please upload a phase file' });
-    }
-
-    if (isZipFile(uploadedDocument) && !uploadedVideo) {
-      return res.status(400).json({
-        success: false,
-        message: 'A walkthrough video is required when uploading a ZIP or RAR file.'
-      });
-    }
 
     const project = await executeInTransaction(async (session) => {
       const currentProject = await withSession(
@@ -1308,6 +1534,8 @@ exports.submitPhase = async (req, res) => {
         return res.status(404).json({ success: false, message: 'Phase not found' });
       }
 
+      const submissionType = normalizeSubmissionType(phase.submissionType);
+
       const phaseIndex = currentProject.phases.findIndex((item) => item._id.toString() === phase._id.toString());
       const hasUnapprovedPreviousPhase = currentProject.phases
         .slice(0, phaseIndex)
@@ -1327,34 +1555,79 @@ exports.submitPhase = async (req, res) => {
         });
       }
 
-      if (!phase.submission) phase.submission = {};
-
-      phase.submission.link = link;
-      phase.submission.comments = comments;
-      phase.submission.submittedAt = Date.now();
-      phase.submission.submittedBy = req.user.id;
-
-      // Upload files to Cloudinary
-      const uploadDocResult = await uploadFileToCloudinary(uploadedDocument, {
-        folderContext: {
-          userRole: req.user.role,
-          userId: req.user.id,
-          projectId: currentProject._id.toString(),
-          projectTitle: currentProject.title,
-          fileType: 'phases'
+      if (submissionType === 'file') {
+        if (!uploadedDocument) {
+          return res.status(400).json({ success: false, message: 'Please upload a phase file' });
         }
-      });
 
-      phase.submission.fileUrl = uploadDocResult.secure_url;
-      phase.submission.filePublicId = uploadDocResult.public_id;
-      phase.submission.fileOriginalFilename = uploadDocResult.original_filename;
-      phase.submission.fileResourceType = uploadDocResult.resource_type;
-      phase.submission.fileFormat = uploadDocResult.format;
-      phase.submission.fileName = uploadDocResult.originalName;
-      phase.submission.fileSize = uploadDocResult.bytes;
+        if (isZipFile(uploadedDocument) && !uploadedVideo) {
+          return res.status(400).json({
+            success: false,
+            message: 'A walkthrough video is required when uploading a ZIP or RAR file.'
+          });
+        }
+      } else if (uploadedDocument || uploadedVideo) {
+        return res.status(400).json({
+          success: false,
+          message: 'This phase does not accept file uploads'
+        });
+      }
 
-      if (uploadedVideo) {
-        const uploadVideoResult = await uploadFileToCloudinary(uploadedVideo, {
+      let submissionValue = submittedText;
+      if (submissionType === 'url') {
+        submissionValue = submittedLink;
+      }
+
+      if (submissionType === 'url' && !submissionValue) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please provide a valid URL for this phase'
+        });
+      }
+
+      if (submissionType === 'url') {
+        try {
+          submissionValue = new URL(submissionValue).toString();
+        } catch (error) {
+          return res.status(400).json({
+            success: false,
+            message: 'Please provide a valid URL for this phase'
+          });
+        }
+      }
+
+      if ((submissionType === 'text' || submissionType === 'textarea') && !submissionValue) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please provide text for this phase'
+        });
+      }
+
+      const submissionData = {
+        submittedAt: Date.now(),
+        submittedBy: req.user.id,
+        comments: submittedComments || undefined,
+        link: submissionType === 'url' ? submissionValue : submittedLink || undefined,
+        value: submissionType === 'file' ? undefined : submissionValue || undefined,
+        fileUrl: undefined,
+        fileName: undefined,
+        filePublicId: undefined,
+        fileOriginalFilename: undefined,
+        fileResourceType: undefined,
+        fileFormat: undefined,
+        fileSize: undefined,
+        videoUrl: undefined,
+        videoName: undefined,
+        videoPublicId: undefined,
+        videoOriginalFilename: undefined,
+        videoResourceType: undefined,
+        videoFormat: undefined,
+        videoSize: undefined
+      };
+
+      if (submissionType === 'file') {
+        // Upload files to Cloudinary
+        const uploadDocResult = await uploadFileToCloudinary(uploadedDocument, {
           folderContext: {
             userRole: req.user.role,
             userId: req.user.id,
@@ -1363,14 +1636,36 @@ exports.submitPhase = async (req, res) => {
             fileType: 'phases'
           }
         });
-        phase.submission.videoUrl = uploadVideoResult.secure_url;
-        phase.submission.videoPublicId = uploadVideoResult.public_id;
-        phase.submission.videoOriginalFilename = uploadVideoResult.original_filename;
-        phase.submission.videoResourceType = uploadVideoResult.resource_type;
-        phase.submission.videoFormat = uploadVideoResult.format;
-        phase.submission.videoName = uploadVideoResult.originalName;
-        phase.submission.videoSize = uploadVideoResult.bytes;
+
+        submissionData.fileUrl = uploadDocResult.secure_url;
+        submissionData.filePublicId = uploadDocResult.public_id;
+        submissionData.fileOriginalFilename = uploadDocResult.original_filename;
+        submissionData.fileResourceType = uploadDocResult.resource_type;
+        submissionData.fileFormat = uploadDocResult.format;
+        submissionData.fileName = uploadDocResult.originalName;
+        submissionData.fileSize = uploadDocResult.bytes;
+
+        if (uploadedVideo) {
+          const uploadVideoResult = await uploadFileToCloudinary(uploadedVideo, {
+            folderContext: {
+              userRole: req.user.role,
+              userId: req.user.id,
+              projectId: currentProject._id.toString(),
+              projectTitle: currentProject.title,
+              fileType: 'phases'
+            }
+          });
+          submissionData.videoUrl = uploadVideoResult.secure_url;
+          submissionData.videoPublicId = uploadVideoResult.public_id;
+          submissionData.videoOriginalFilename = uploadVideoResult.original_filename;
+          submissionData.videoResourceType = uploadVideoResult.resource_type;
+          submissionData.videoFormat = uploadVideoResult.format;
+          submissionData.videoName = uploadVideoResult.originalName;
+          submissionData.videoSize = uploadVideoResult.bytes;
+        }
       }
+
+      phase.submission = submissionData;
 
       phase.status = 'submitted';
       appendAuditEntry(currentProject, {
@@ -1798,8 +2093,8 @@ exports.resetProject = async (req, res) => {
     }
 
     // Reset phases
-    const phaseTitles = await getConfiguredPhaseTemplate();
-    project.phases = buildProjectPhases(phaseTitles);
+    const phaseDefinitions = await getConfiguredPhaseTemplate();
+    project.phases = buildProjectPhases(phaseDefinitions);
     project.progress = 0;
     project.status = 'in-progress';
     project.isPaused = false;

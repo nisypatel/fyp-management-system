@@ -103,6 +103,11 @@ const projectSchema = new mongoose.Schema({
         type: String,
         trim: true,
         maxlength: [100, 'Phase title cannot exceed 100 characters']
+      },
+      submissionType: {
+        type: String,
+        enum: ['file', 'url', 'text', 'textarea'],
+        default: 'file'
       }
     }],
     default: []
@@ -157,12 +162,18 @@ const projectSchema = new mongoose.Schema({
         trim: true,
         maxlength: [100, 'Phase title cannot exceed 100 characters']
       },
+      submissionType: {
+        type: String,
+        enum: ['file', 'url', 'text', 'textarea'],
+        default: 'file'
+      },
       status: {
         type: String,
         enum: ['pending', 'submitted', 'approved', 'rejected'],
         default: 'pending'
       },
       submission: {
+        value: String,
         link: String, 
         fileUrl: String, 
         fileName: String,
@@ -260,6 +271,16 @@ const projectSchema = new mongoose.Schema({
       default: Date.now
     }
   }]
+  ,
+  removed: {
+    by: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null
+    },
+    at: Date,
+    reason: String
+  }
 }, {
   timestamps: true
 });

@@ -173,6 +173,15 @@ const adminApprovalValidation = [
     .withMessage('Status must be approved or rejected')
 ];
 
+const adminRemoveValidation = [
+  objectIdRule('id', 'Project id'),
+  body('reason')
+    .optional({ values: 'falsy' })
+    .trim()
+    .isLength({ max: 1000 })
+    .withMessage('Reason cannot exceed 1000 characters')
+];
+
 const addFeedbackValidation = [
   objectIdRule('id', 'Project id'),
   body('message')
@@ -204,6 +213,11 @@ const submitPhaseValidation = [
     .optional({ values: 'falsy' })
     .isURL()
     .withMessage('Reference link must be a valid URL'),
+  body('text')
+    .optional({ values: 'falsy' })
+    .trim()
+    .isLength({ max: 5000 })
+    .withMessage('Text submission cannot exceed 5000 characters'),
   body('comments')
     .optional({ values: 'falsy' })
     .trim()
@@ -233,7 +247,11 @@ const updatePhaseTemplateValidation = [
   body('phases.*.title')
     .trim()
     .isLength({ min: 2, max: 100 })
-    .withMessage('Each phase title must be between 2 and 100 characters')
+    .withMessage('Each phase title must be between 2 and 100 characters'),
+  body('phases.*.submissionType')
+    .optional()
+    .isIn(['file', 'url', 'text', 'textarea'])
+    .withMessage('Submission type must be file, url, text, or textarea')
 ];
 
 const reviewScreenRecordingValidation = [
@@ -358,6 +376,8 @@ module.exports = {
   reviewScreenRecordingValidation,
   notificationListValidation,
   notificationIdValidation,
+  adminRemoveValidation,
+  // adminRestoreValidation is same as objectId check, reusing objectIdRule in route
   createUserValidation,
   updateUserValidation,
   objectIdRule

@@ -44,6 +44,11 @@ export const authService = {
     return response.data.user;
   },
 
+  async deleteProfileImage() {
+    const response = await apiClient.delete('/auth/profile-image');
+    return response.data.user;
+  },
+
   async updatePassword(passwordData) {
     await apiClient.put('/auth/updatepassword', passwordData);
   },

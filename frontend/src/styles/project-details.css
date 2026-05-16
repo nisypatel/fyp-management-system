@@ -340,12 +340,39 @@
 .project-phase-meta-row {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 0.75rem;
   font-size: 0.88rem;
 }
 
 .project-phase-meta-row span {
   color: var(--text-secondary);
+}
+
+.project-phase-meta-content {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  text-align: right;
+}
+
+.project-phase-meta-content strong {
+  word-break: break-word;
+}
+
+@media (max-width: 560px) {
+  .project-phase-meta-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .project-phase-meta-content {
+    width: 100%;
+    justify-content: flex-start;
+    text-align: left;
+  }
 }
 
 .project-phase-comments,

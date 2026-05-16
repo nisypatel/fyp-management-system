@@ -5,7 +5,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { sendEmail } = require('../utils/sendEmail');
 const logger = require('../utils/logger');
-const { uploadBufferToCloudinary, deleteFromCloudinary, isCloudinaryConfigured } = require('../utils/cloudinary');
+const { deleteFromCloudinary, isCloudinaryConfigured, uploadFileToCloudinary } = require('../utils/cloudinary');
 const { appendAuditEntry } = require('../utils/auditTrail');
 
 // Generate JWT Token
@@ -501,24 +501,92 @@ exports.uploadProfileImage = async (req, res) => {
     if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
     
     const user = await User.findById(req.user.id);
-    if (user.avatar?.publicId && isCloudinaryConfigured()) {
-      await deleteFromCloudinary(user.avatar.publicId);
-    }
+    const previousAvatar = user.avatar ? { ...user.avatar } : null;
     
-    if (isCloudinaryConfigured()) {
-      const result = await uploadBufferToCloudinary(req.file.buffer, { folder: 'fyp-avatars' });
-      user.avatar = { publicId: result.public_id, url: result.secure_url, uploadedAt: new Date() };
-    }
+    const uploadedAvatar = await uploadFileToCloudinary(req.file, {
+      folder: 'fyp/avatars',
+      resource_type: 'image'
+    });
+
+    user.avatar = {
+      secure_url: uploadedAvatar.secure_url,
+      public_id: uploadedAvatar.public_id,
+      original_filename: uploadedAvatar.original_filename,
+      resource_type: uploadedAvatar.resource_type,
+      format: uploadedAvatar.format,
+      publicId: uploadedAvatar.public_id,
+      url: uploadedAvatar.secure_url,
+      uploadedAt: new Date()
+    };
     appendAuditEntry(user, {
       userId: req.user.id,
       action: 'avatar_updated',
       changes: 'Profile image updated'
     });
     
-    await user.save();
+    try {
+      await user.save();
+    } catch (saveError) {
+      await deleteFromCloudinary(uploadedAvatar.public_id, { resource_type: uploadedAvatar.resource_type || 'image' });
+      throw saveError;
+    }
+
+    const previousAvatarPublicId = previousAvatar?.public_id || previousAvatar?.publicId;
+    if (previousAvatarPublicId && isCloudinaryConfigured()) {
+      try {
+        await deleteFromCloudinary(previousAvatarPublicId, { resource_type: previousAvatar.resource_type || 'image' });
+      } catch (cleanupError) {
+        logger.error('Cloudinary delete failed', { message: cleanupError.message, stack: cleanupError.stack });
+      }
+    }
+
     res.status(200).json({ success: true, user });
   } catch (error) {
     res.status(400).json({ success: false, message: 'Failed to upload profile image. Please try again.' });
+  }
+};
+
+// @desc    Delete profile image
+// @route   DELETE /api/auth/profile-image
+// @access  Private
+exports.deleteProfileImage = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const avatarPublicId = user.avatar?.public_id || user.avatar?.publicId;
+    if (avatarPublicId && isCloudinaryConfigured()) {
+      try {
+        await deleteFromCloudinary(avatarPublicId, { resource_type: user.avatar.resource_type || 'image' });
+      } catch (err) {
+        // Log and continue to clear avatar record even if cloudinary deletion fails
+        logger.error('Cloudinary delete failed', { message: err.message, stack: err.stack });
+      }
+    }
+
+    user.avatar = {
+      secure_url: null,
+      public_id: null,
+      original_filename: null,
+      resource_type: null,
+      format: null,
+      publicId: null,
+      url: null,
+      uploadedAt: null
+    };
+    appendAuditEntry(user, {
+      userId: req.user.id,
+      action: 'avatar_deleted',
+      changes: 'Profile image removed by user'
+    });
+
+    await user.save();
+
+    res.status(200).json({ success: true, user });
+  } catch (error) {
+    res.status(400).json({ success: false, message: 'Failed to remove profile image. Please try again.' });
   }
 };
 

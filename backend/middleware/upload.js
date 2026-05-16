@@ -1,6 +1,5 @@
 const multer = require('multer');
 const path = require('path');
-const fs = require('fs');
 
 const documentExtensions = new Set(['.pdf', '.doc', '.docx', '.ppt', '.pptx', '.zip', '.rar', '.jpg', '.jpeg', '.png']);
 const documentMimeTypes = new Set([
@@ -38,22 +37,7 @@ const isAllowedVideo = (file) => {
   return videoExtensions.has(ext) && videoMimeTypes.has((file.mimetype || '').toLowerCase());
 };
 
-// Create uploads directory if it doesn't exist
-const uploadDir = './uploads';
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
-
-// Configure storage
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, uploadDir);
-  },
-  filename: function (req, file, cb) {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
-  }
-});
+const storage = multer.memoryStorage();
 
 // File filter for documents
 const docFileFilter = (req, file, cb) => {

@@ -56,6 +56,11 @@ const projectSchema = new mongoose.Schema({
     respondedAt: Date
   }],
   proposalFile: {
+    secure_url: String,
+    public_id: String,
+    original_filename: String,
+    resource_type: String,
+    format: String,
     filename: String,
     originalName: String,
     path: String,
@@ -64,6 +69,11 @@ const projectSchema = new mongoose.Schema({
   },
   documents: [{
     title: String,
+    secure_url: String,
+    public_id: String,
+    original_filename: String,
+    resource_type: String,
+    format: String,
     filename: String,
     originalName: String,
     path: String,
@@ -105,6 +115,11 @@ const projectSchema = new mongoose.Schema({
   resetAt: Date,
   codeReview: {
     screenRecording: {
+      secure_url: String,
+      public_id: String,
+      original_filename: String,
+      resource_type: String,
+      format: String,
       filename: String,
       originalName: String,
       path: String,
@@ -151,6 +166,10 @@ const projectSchema = new mongoose.Schema({
         link: String, 
         fileUrl: String, 
         fileName: String,
+        filePublicId: String,
+        fileOriginalFilename: String,
+        fileResourceType: String,
+        fileFormat: String,
         fileSize: Number,
         submittedBy: {
           type: mongoose.Schema.Types.ObjectId,
@@ -158,6 +177,10 @@ const projectSchema = new mongoose.Schema({
         },
         videoUrl: String,
         videoName: String,
+        videoPublicId: String,
+        videoOriginalFilename: String,
+        videoResourceType: String,
+        videoFormat: String,
         videoSize: Number,
         comments: String,
         submittedAt: Date

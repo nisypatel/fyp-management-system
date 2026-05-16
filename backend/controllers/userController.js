@@ -6,6 +6,7 @@ const Notification = require('../models/Notification');
 const { normalizeRole } = require('../utils/role');
 const { appendAuditEntry, buildAuditEntry } = require('../utils/auditTrail');
 const { sendEmail } = require('../utils/sendEmail');
+const { uploadFileToCloudinary, deleteFromCloudinary } = require('../utils/cloudinary');
 
 const VERIFICATION_DOMAIN_KEY = 'verification_email_domain';
 
@@ -786,6 +787,7 @@ exports.confirmOTPVerification = async (req, res) => {
 // @route   POST /api/users/verification/id-card
 // @access  Private (Student)
 exports.uploadIDCard = async (req, res) => {
+  let uploadedIdCard = null;
   try {
     if (!req.file) {
       return res.status(400).json({
@@ -803,13 +805,14 @@ exports.uploadIDCard = async (req, res) => {
       });
     }
 
+    uploadedIdCard = await uploadFileToCloudinary(req.file, {
+      folder: `fyp/users/${user._id}/verification/id-card`
+    });
+
     user.verificationStatus = 'id_pending';
     user.verificationMethod = 'id_card';
     user.idCardFile = {
-      filename: req.file.filename,
-      originalName: req.file.originalname,
-      path: req.file.path,
-      size: req.file.size,
+      ...uploadedIdCard,
       uploadedAt: new Date()
     };
     user.verificationAudit.push({
@@ -841,6 +844,14 @@ exports.uploadIDCard = async (req, res) => {
       message: 'ID card uploaded successfully. Awaiting admin review.'
     });
   } catch (error) {
+    if (uploadedIdCard?.public_id) {
+      try {
+        await deleteFromCloudinary(uploadedIdCard.public_id, { resource_type: uploadedIdCard.resource_type || 'image' });
+      } catch (cleanupError) {
+        // keep original error response; cleanup failure should not block the request failure path
+      }
+    }
+
     res.status(400).json({
       success: false,
       message: 'An error occurred. Please try again.'

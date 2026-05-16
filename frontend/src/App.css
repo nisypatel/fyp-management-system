@@ -530,6 +530,128 @@ th.action-cell {
   white-space: nowrap;
 }
 
+.document-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.document-action-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.95rem;
+  height: 1.95rem;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--primary-color);
+  padding: 0;
+  text-decoration: none;
+  cursor: pointer;
+  transition: color 0.2s ease, background-color 0.2s ease, transform 0.2s ease;
+}
+
+.document-action-button svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.document-action-button:hover:not(:disabled),
+.document-action-link:hover {
+  color: #0a3e67;
+  background: rgba(15, 76, 129, 0.08);
+  text-decoration: none;
+  transform: translateY(-1px);
+}
+
+.document-action-button:focus-visible {
+  outline: 2px solid rgba(15, 76, 129, 0.35);
+  outline-offset: 2px;
+}
+
+.document-action-button:disabled,
+.document-action-disabled {
+  color: #9eb0c7;
+  cursor: not-allowed;
+}
+
+.document-action-disabled {
+  pointer-events: none;
+}
+
+@media (max-width: 480px) {
+  .document-actions {
+    gap: 0.25rem;
+  }
+
+  .document-action-button {
+    width: 1.85rem;
+    height: 1.85rem;
+  }
+}
+
+/* Profile avatar */
+.profile-avatar-img {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid #e2e8f0;
+  display: block;
+}
+
+.profile-avatar-fallback {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  color: #1e293b;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 28px;
+  border: 2px solid #e2e8f0;
+}
+
+.icon-upload-btn,
+.icon-delete-btn {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--primary-color);
+  cursor: pointer;
+  padding: 0;
+}
+
+.icon-upload-btn svg,
+.icon-delete-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.icon-delete-btn { color: #dc3545; }
+
+.user-detail-email {
+  display: inline-block;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+@media (max-width: 720px) {
+  .user-detail-email { max-width: 180px; }
+}
+
 .btn-min {
   min-width: 60px;
 }

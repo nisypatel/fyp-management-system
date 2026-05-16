@@ -1,3 +1,5 @@
+const path = require('path');
+const fs = require('fs');
 const Project = require('../models/Project');
 const User = require('../models/User');
 const Notification = require('../models/Notification');
@@ -7,8 +9,7 @@ const logger = require('../utils/logger');
 const { sanitizeText } = require('../utils/sanitize');
 const { appendAuditEntry, buildAuditEntry, MAX_AUDIT_ENTRIES } = require('../utils/auditTrail');
 const { executeInTransaction, withSession } = require('../utils/transaction');
-const path = require('path');
-const fs = require('fs');
+const { uploadFileToCloudinary, buildDynamicCloudinaryFolder, buildCloudinaryPreviewUrl } = require('../utils/cloudinary');
 
 const isStudentInActiveProject = async (studentId, excludeProjectId = null, session = null) => {
   const query = {
@@ -334,11 +335,26 @@ exports.createProject = async (req, res) => {
       }
 
       if (req.file) {
+        // Upload to Cloudinary
+        const uploadResult = await uploadFileToCloudinary(req.file, {
+          folderContext: {
+            userRole: req.user.role,
+            userId: req.user.id,
+            projectId: null, // Will be set after project creation
+            projectTitle: title,
+            fileType: 'proposal'
+          }
+        });
+
         projectData.proposalFile = {
-          filename: req.file.filename,
-          originalName: req.file.originalname,
-          path: req.file.path,
-          size: req.file.size,
+          secure_url: uploadResult.secure_url,
+          public_id: uploadResult.public_id,
+          original_filename: uploadResult.original_filename,
+          resource_type: uploadResult.resource_type,
+          format: uploadResult.format,
+          filename: uploadResult.filename,
+          originalName: uploadResult.originalName,
+          size: uploadResult.bytes,
           uploadedAt: new Date()
         };
       }
@@ -875,14 +891,31 @@ exports.uploadDocument = async (req, res) => {
       });
     }
 
-    project.documents.push({
-      title: title || req.file.originalname,
-      filename: req.file.filename,
-      originalName: req.file.originalname,
-      path: req.file.path,
-      size: req.file.size,
-      uploadedBy: req.user.id
+    // Upload to Cloudinary with organized folder structure
+    const uploadResult = await uploadFileToCloudinary(req.file, {
+      folderContext: {
+        userRole: req.user.role,
+        userId: req.user.id,
+        projectId: project._id.toString(),
+        projectTitle: project.title,
+        fileType: 'documents'
+      }
     });
+
+    const documentRecord = {
+      title: title || req.file.originalname,
+      secure_url: uploadResult.secure_url,
+      public_id: uploadResult.public_id,
+      original_filename: uploadResult.original_filename,
+      resource_type: uploadResult.resource_type,
+      format: uploadResult.format,
+      filename: uploadResult.filename,
+      originalName: uploadResult.originalName,
+      size: uploadResult.bytes,
+      uploadedBy: req.user.id
+    };
+
+    project.documents.push(documentRecord);
     appendAuditEntry(project, {
       userId: req.user.id,
       action: 'document_uploaded',
@@ -1301,12 +1334,43 @@ exports.submitPhase = async (req, res) => {
       phase.submission.submittedAt = Date.now();
       phase.submission.submittedBy = req.user.id;
 
-      phase.submission.fileUrl = uploadedDocument.path;
-      phase.submission.fileName = uploadedDocument.originalname;
-      phase.submission.fileSize = uploadedDocument.size;
-      phase.submission.videoUrl = uploadedVideo ? uploadedVideo.path : null;
-      phase.submission.videoName = uploadedVideo ? uploadedVideo.originalname : null;
-      phase.submission.videoSize = uploadedVideo ? uploadedVideo.size : null;
+      // Upload files to Cloudinary
+      const uploadDocResult = await uploadFileToCloudinary(uploadedDocument, {
+        folderContext: {
+          userRole: req.user.role,
+          userId: req.user.id,
+          projectId: currentProject._id.toString(),
+          projectTitle: currentProject.title,
+          fileType: 'phases'
+        }
+      });
+
+      phase.submission.fileUrl = uploadDocResult.secure_url;
+      phase.submission.filePublicId = uploadDocResult.public_id;
+      phase.submission.fileOriginalFilename = uploadDocResult.original_filename;
+      phase.submission.fileResourceType = uploadDocResult.resource_type;
+      phase.submission.fileFormat = uploadDocResult.format;
+      phase.submission.fileName = uploadDocResult.originalName;
+      phase.submission.fileSize = uploadDocResult.bytes;
+
+      if (uploadedVideo) {
+        const uploadVideoResult = await uploadFileToCloudinary(uploadedVideo, {
+          folderContext: {
+            userRole: req.user.role,
+            userId: req.user.id,
+            projectId: currentProject._id.toString(),
+            projectTitle: currentProject.title,
+            fileType: 'phases'
+          }
+        });
+        phase.submission.videoUrl = uploadVideoResult.secure_url;
+        phase.submission.videoPublicId = uploadVideoResult.public_id;
+        phase.submission.videoOriginalFilename = uploadVideoResult.original_filename;
+        phase.submission.videoResourceType = uploadVideoResult.resource_type;
+        phase.submission.videoFormat = uploadVideoResult.format;
+        phase.submission.videoName = uploadVideoResult.originalName;
+        phase.submission.videoSize = uploadVideoResult.bytes;
+      }
 
       phase.status = 'submitted';
       appendAuditEntry(currentProject, {
@@ -1380,13 +1444,6 @@ exports.evaluatePhase = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Status must be approved or rejected' });
     }
 
-    if (status === 'rejected' && !feedbackMessage) {
-      return res.status(400).json({
-        success: false,
-        message: 'Feedback is required when rejecting a phase'
-      });
-    }
-
     if (phase.status !== 'submitted') {
       return res.status(400).json({
         success: false,
@@ -1418,6 +1475,10 @@ exports.evaluatePhase = async (req, res) => {
       if (project.progress === 100) {
         project.status = 'completed';
       }
+    } else if (status === 'rejected') {
+      // Reset approval timestamp for rejected phases
+      phase.approvedAt = null;
+      // Student can now resubmit - submission data is kept for reference
     }
 
     appendAuditEntry(project, {
@@ -1485,12 +1546,28 @@ exports.uploadScreenRecording = async (req, res) => {
       project.codeReview = {};
     }
 
+    // Upload to Cloudinary
+    const uploadResult = await uploadFileToCloudinary(req.file, {
+      folderContext: {
+        userRole: req.user.role,
+        userId: req.user.id,
+        projectId: project._id.toString(),
+        projectTitle: project.title,
+        fileType: 'code-review'
+      }
+    });
+
     project.codeReview.screenRecording = {
-      filename: req.file.filename,
-      originalName: req.file.originalname,
-      path: req.file.path,
-      size: req.file.size,
-      uploadedAt: new Date()
+      secure_url: uploadResult.secure_url,
+      public_id: uploadResult.public_id,
+      original_filename: uploadResult.original_filename,
+      resource_type: uploadResult.resource_type,
+      format: uploadResult.format,
+      filename: uploadResult.filename,
+      originalName: uploadResult.originalName,
+      size: uploadResult.bytes,
+      uploadedAt: new Date(),
+      uploadedBy: req.user.id
     };
 
     project.codeReview.status = 'submitted';

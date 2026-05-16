@@ -7,7 +7,7 @@ import { authService } from '../services/authService';
 import usePageTitle from '../hooks/usePageTitle';
 import Navbar from '../components/Navbar';
 import { FaEye, FaEyeSlash } from 'react-icons/fa';
-import { FiArrowLeft } from 'react-icons/fi';
+import { FiArrowLeft, FiUpload, FiTrash2 } from 'react-icons/fi';
 import { isStrongPassword, isValidPhone } from '../utils/validation';
 
 const Profile = () => {
@@ -157,26 +157,59 @@ const Profile = () => {
             <h2 className="card-title">User Information</h2>
           </div>
           <div className="card-body">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '20px' }}>
-              <img
-                src={user?.avatar?.url || defaultAvatar}
-                alt="Profile"
-                style={{ width: '76px', height: '76px', borderRadius: '50%', objectFit: 'cover', border: '2px solid #e2e8f0' }}
-              />
-              <div>
-                <label className="btn btn-sm btn-outline" style={{ cursor: uploadingImage ? 'not-allowed' : 'pointer', opacity: uploadingImage ? 0.7 : 1 }}>
-                  {uploadingImage ? 'Uploading...' : 'Change Profile Photo'}
-                  <input
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp"
-                    onChange={handleProfileImageChange}
-                    disabled={uploadingImage}
-                    style={{ display: 'none' }}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                {user?.avatar?.url ? (
+                  <img
+                    src={user.avatar.url}
+                    alt="Profile"
+                    className="profile-avatar-img"
                   />
-                </label>
-                <small style={{ display: 'block', color: '#64748b', marginTop: '8px' }}>
-                  JPG, PNG, WEBP up to 5MB
-                </small>
+                ) : (
+                  <div className="profile-avatar-fallback">{(user?.name || 'U').trim().charAt(0).toUpperCase()}</div>
+                )}
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <label className="icon-upload-btn" title="Upload new photo" style={{ opacity: uploadingImage ? 0.6 : 1 }}>
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        onChange={handleProfileImageChange}
+                        disabled={uploadingImage}
+                        style={{ display: 'none' }}
+                      />
+                      <FiUpload />
+                    </label>
+
+                    <button
+                      type="button"
+                      className="icon-delete-btn"
+                      title="Remove photo"
+                      onClick={async () => {
+                        if (!user?.avatar?.url) return;
+                        if (!window.confirm('Remove profile photo?')) return;
+                        try {
+                          setUploadingImage(true);
+                          const updatedUser = await authService.deleteProfileImage();
+                          updateUser(updatedUser);
+                          toast.success('Profile photo removed');
+                        } catch (err) {
+                          toast.error('Failed to remove photo');
+                        } finally {
+                          setUploadingImage(false);
+                        }
+                      }}
+                      disabled={uploadingImage}
+                    >
+                      <FiTrash2 />
+                    </button>
+                  </div>
+
+                  <small style={{ display: 'block', color: '#64748b' }}>
+                    JPG, PNG, WEBP up to 5MB
+                  </small>
+                </div>
               </div>
             </div>
             <div className="user-details-grid">
@@ -186,7 +219,7 @@ const Profile = () => {
               </div>
               <div className="user-detail-item">
                 <span className="user-detail-label">Email</span>
-                <span className="user-detail-value">{user?.email}</span>
+                <span className="user-detail-value user-detail-email" title={user?.email}>{user?.email}</span>
               </div>
               <div className="user-detail-item">
                 <span className="user-detail-label">Role</span>

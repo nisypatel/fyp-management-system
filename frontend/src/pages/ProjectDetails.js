@@ -3,14 +3,15 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-toastify';
-import { FiDownload, FiUpload, FiSend, FiArrowLeft } from 'react-icons/fi';
+import { FiUpload, FiSend, FiArrowLeft } from 'react-icons/fi';
 import { projectService } from '../services/projectService';
-import { fileService } from '../services/fileService';
 import usePageTitle from '../hooks/usePageTitle';
 import Navbar from '../components/Navbar';
 import StatusBadge from '../components/ui/StatusBadge';
+import DocumentActions from '../components/ui/DocumentActions';
 import '../styles/project-details.css';
 import { getApiErrorMessage, hasAllowedExtension, maxSizeInBytes } from '../utils/validation';
+import { getMeaningfulDocumentName } from '../utils/fileUtils';
 
 const getFriendlyInviteStatus = (status) => {
   if (status === 'pending') return 'Awaiting Response';
@@ -158,21 +159,6 @@ const ProjectDetails = () => {
       setSelectedPhaseId(nextActionablePhase._id);
     }
   }, [project]);
-
-  const handleDownloadFile = async (filename) => {
-    try {
-      const fileBlob = await fileService.download(filename);
-      const url = window.URL.createObjectURL(new Blob([fileBlob]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', filename);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-    } catch (error) {
-      toast.error('Error downloading file');
-    }
-  };
 
   const handleFeedbackSubmit = async (e) => {
     e.preventDefault();
@@ -449,7 +435,7 @@ const ProjectDetails = () => {
             <div className="project-phase-grid">
               {projectPhases.map((phase, index) => {
                 const isLocked = projectPhases.slice(0, index).some((item) => item.status !== 'approved');
-                const canMentorReview = user.role === 'faculty' && project.supervisor && project.supervisor._id === user.id && phase.status === 'submitted';
+                const canMentorReview = user.role === 'faculty' && project.supervisor && project.supervisor._id === user.id && ['submitted', 'rejected'].includes(phase.status);
                 const submittedAtLabel = phase.submission?.submittedAt ? new Date(phase.submission.submittedAt).toLocaleString() : 'Not submitted';
                 const phaseFeedbackEntries = Array.isArray(phase.feedback)
                   ? phase.feedback.filter((entry) => entry && entry.message)
@@ -474,12 +460,50 @@ const ProjectDetails = () => {
                         </div>
                         <div className="project-phase-meta-row">
                           <span>File</span>
-                          <strong>{phase.submission.fileName || 'N/A'}</strong>
+                          <div className="project-phase-meta-content">
+                            <strong>{getMeaningfulDocumentName({
+                              original_filename: phase.submission.fileOriginalFilename,
+                              originalName: phase.submission.fileName,
+                              fileName: phase.submission.fileName,
+                              public_id: phase.submission.filePublicId,
+                              secure_url: phase.submission.fileUrl,
+                              format: phase.submission.fileFormat,
+                              resource_type: phase.submission.fileResourceType
+                            })}</strong>
+                            <DocumentActions
+                              file={{
+                                secure_url: phase.submission.fileUrl,
+                                public_id: phase.submission.filePublicId,
+                                original_filename: phase.submission.fileOriginalFilename || phase.submission.fileName,
+                                resource_type: phase.submission.fileResourceType,
+                                format: phase.submission.fileFormat
+                              }}
+                            />
+                          </div>
                         </div>
                         {phase.submission.videoName && (
                           <div className="project-phase-meta-row">
                             <span>Video</span>
-                            <strong>{phase.submission.videoName}</strong>
+                            <div className="project-phase-meta-content">
+                              <strong>{getMeaningfulDocumentName({
+                                original_filename: phase.submission.videoOriginalFilename,
+                                originalName: phase.submission.videoName,
+                                fileName: phase.submission.videoName,
+                                public_id: phase.submission.videoPublicId,
+                                secure_url: phase.submission.videoUrl,
+                                format: phase.submission.videoFormat,
+                                resource_type: phase.submission.videoResourceType
+                              })}</strong>
+                              <DocumentActions
+                                file={{
+                                  secure_url: phase.submission.videoUrl,
+                                  public_id: phase.submission.videoPublicId,
+                                  original_filename: phase.submission.videoOriginalFilename || phase.submission.videoName,
+                                  resource_type: phase.submission.videoResourceType,
+                                  format: phase.submission.videoFormat
+                                }}
+                              />
+                            </div>
                           </div>
                         )}
                         {phase.submission.comments && (
@@ -508,7 +532,7 @@ const ProjectDetails = () => {
                       </div>
                     )}
 
-                    {canMentorReview && (
+                    {canMentorReview && phase.status === 'submitted' && (
                       <div className="project-phase-review-box">
                         <textarea
                           className="form-textarea"
@@ -532,6 +556,19 @@ const ProjectDetails = () => {
                             Reject
                           </button>
                         </div>
+                      </div>
+                    )}
+
+                    {canMentorReview && phase.status === 'rejected' && phase.feedback && phase.feedback.length > 0 && (
+                      <div className="project-phase-review-box">
+                        <h4>Rejection Feedback</h4>
+                        {phase.feedback.map((entry, idx) => (
+                          <div key={idx} style={{ marginBottom: '12px', padding: '8px', background: '#fff3cd', borderRadius: '6px', borderLeft: '4px solid #ffc107' }}>
+                            <p style={{ margin: '0 0 4px', fontSize: '0.9rem' }}>{entry.message}</p>
+                            <small style={{ color: '#666' }}>{entry.from?.name || 'Reviewer'} · {entry.timestamp ? new Date(entry.timestamp).toLocaleString() : 'N/A'}</small>
+                          </div>
+                        ))}
+                        <p style={{ marginTop: '12px', fontSize: '0.9rem', color: '#666' }}>Student can now resubmit this phase above.</p>
                       </div>
                     )}
                   </article>
@@ -562,12 +599,7 @@ const ProjectDetails = () => {
 
             {project.codeReview?.screenRecording && (
               <div className="mt-1">
-                <button
-                  className="btn btn-outline"
-                  onClick={() => handleDownloadFile(project.codeReview.screenRecording.filename)}
-                >
-                  <FiDownload /> Download Screen Recording
-                </button>
+                <DocumentActions file={project.codeReview.screenRecording} />
               </div>
             )}
 
@@ -637,12 +669,7 @@ const ProjectDetails = () => {
               <div className="project-card-header">
                 <h2>Proposal Document</h2>
               </div>
-              <button
-                className="btn btn-outline"
-                onClick={() => handleDownloadFile(project.proposalFile.filename)}
-              >
-                <FiDownload /> Download Proposal
-              </button>
+              <DocumentActions file={project.proposalFile} />
             </section>
           )}
 
@@ -670,12 +697,7 @@ const ProjectDetails = () => {
                         <td>{doc.uploadedBy.name}</td>
                         <td>{new Date(doc.uploadedAt).toLocaleDateString()}</td>
                         <td>
-                          <button
-                            className="btn btn-sm btn-outline"
-                            onClick={() => handleDownloadFile(doc.filename)}
-                          >
-                            <FiDownload /> Download
-                          </button>
+                          <DocumentActions file={doc} />
                         </td>
                       </tr>
                     ))}

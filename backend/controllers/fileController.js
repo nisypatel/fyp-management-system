@@ -2,6 +2,63 @@ const path = require('path');
 const fs = require('fs');
 const Project = require('../models/Project');
 const { appendAuditEntry } = require('../utils/auditTrail');
+const { buildCloudinaryDownloadUrl, deleteFromCloudinary, isCloudinaryConfigured } = require('../utils/cloudinary');
+
+const getFileDisplayName = (fileRecord = {}, fallback = 'download') => (
+  fileRecord.original_filename ||
+  fileRecord.originalName ||
+  fileRecord.fileName ||
+  fallback
+);
+
+const getFileSearchValues = (fileRecord = {}) => [
+  fileRecord.public_id,
+  fileRecord.publicId,
+  fileRecord.filename,
+  fileRecord.original_filename,
+  fileRecord.originalName,
+  fileRecord.filePublicId,
+  fileRecord.videoPublicId,
+  fileRecord.fileOriginalFilename,
+  fileRecord.videoOriginalFilename,
+  fileRecord.fileUrl,
+  fileRecord.videoUrl,
+  fileRecord.secure_url,
+  fileRecord.path,
+  fileRecord.url
+].filter(Boolean);
+
+const matchesFileReference = (fileRecord = {}, reference = '') => {
+  if (!reference) return false;
+  const values = getFileSearchValues(fileRecord);
+  return values.some((value) => String(value).includes(reference) || String(value).endsWith(reference));
+};
+
+const findProjectFile = (project, reference) => {
+  if (!project || !reference) return null;
+
+  if (project.proposalFile && matchesFileReference(project.proposalFile, reference)) {
+    return { type: 'proposalFile', file: project.proposalFile };
+  }
+
+  const document = project.documents?.find((item) => matchesFileReference(item, reference));
+  if (document) {
+    return { type: 'document', file: document };
+  }
+
+  if (project.codeReview?.screenRecording && matchesFileReference(project.codeReview.screenRecording, reference)) {
+    return { type: 'screenRecording', file: project.codeReview.screenRecording };
+  }
+
+  for (const phase of project.phases || []) {
+    const submission = phase.submission || {};
+    if (matchesFileReference(submission, reference)) {
+      return { type: 'phaseSubmission', file: submission };
+    }
+  }
+
+  return null;
+};
 
 // @desc    Download file
 // @route   GET /api/files/download/:filename
@@ -16,28 +73,30 @@ exports.downloadFile = async (req, res) => {
       });
     }
 
-    const filePath = path.join(__dirname, '../uploads', filename);
+    const project = await Project.findOne({
+      $or: [
+        { 'proposalFile.public_id': filename },
+        { 'proposalFile.original_filename': filename },
+        { 'documents.public_id': filename },
+        { 'documents.original_filename': filename },
+        { 'codeReview.screenRecording.public_id': filename },
+        { 'codeReview.screenRecording.original_filename': filename },
+        { 'phases.submission.filePublicId': filename },
+        { 'phases.submission.fileOriginalFilename': filename },
+        { 'phases.submission.videoPublicId': filename },
+        { 'phases.submission.videoOriginalFilename': filename }
+      ]
+    });
 
-    // Check if file exists
-    if (!fs.existsSync(filePath)) {
+    if (!project) {
       return res.status(404).json({
         success: false,
         message: 'File not found'
       });
     }
 
-    // Verify user has access to this file
-    const project = await Project.findOne({
-      $or: [
-        { 'proposalFile.filename': filename },
-        { 'documents.filename': filename },
-        { 'codeReview.screenRecording.filename': filename },
-        { 'phases.submission.fileUrl': { $regex: `${filename}$` } },
-        { 'phases.submission.videoUrl': { $regex: `${filename}$` } }
-      ]
-    });
-
-    if (!project) {
+    const resolvedFile = findProjectFile(project, filename);
+    if (!resolvedFile) {
       return res.status(404).json({
         success: false,
         message: 'File not found'
@@ -60,33 +119,24 @@ exports.downloadFile = async (req, res) => {
       });
     }
 
-    // Get original filename
-    let originalName = filename;
-    if (project.proposalFile && project.proposalFile.filename === filename) {
-      originalName = project.proposalFile.originalName;
-    } else if (project.codeReview?.screenRecording?.filename === filename) {
-      originalName = project.codeReview.screenRecording.originalName || filename;
-    } else {
-      const doc = project.documents.find(d => d.filename === filename);
-      if (doc) {
-        originalName = doc.originalName;
-      } else {
-        const phaseWithFile = project.phases.find((phase) => phase.submission && (
-          (phase.submission.fileUrl && phase.submission.fileUrl.endsWith(filename)) ||
-          (phase.submission.videoUrl && phase.submission.videoUrl.endsWith(filename))
-        ));
+    const fileRecord = resolvedFile.file;
+    const cloudinaryDownloadUrl = buildCloudinaryDownloadUrl(fileRecord, {
+      filename: getFileDisplayName(fileRecord, filename)
+    });
 
-        if (phaseWithFile) {
-          if (phaseWithFile.submission.fileUrl && phaseWithFile.submission.fileUrl.endsWith(filename)) {
-            originalName = phaseWithFile.submission.fileName || filename;
-          } else {
-            originalName = phaseWithFile.submission.videoName || filename;
-          }
-        }
-      }
+    if (cloudinaryDownloadUrl) {
+      return res.redirect(cloudinaryDownloadUrl);
     }
 
-    res.download(filePath, originalName, (err) => {
+    const filePath = path.join(__dirname, '../uploads', filename);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({
+        success: false,
+        message: 'File not found'
+      });
+    }
+
+    res.download(filePath, getFileDisplayName(fileRecord, filename), (err) => {
       if (err) {
         res.status(500).json({
           success: false,
@@ -138,11 +188,15 @@ exports.deleteFile = async (req, res) => {
     }
 
     const document = project.documents[documentIndex];
-    const filePath = path.join(__dirname, '..', document.path);
 
-    // Delete file from filesystem
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
+    const documentPublicId = document.public_id || document.publicId;
+    if (documentPublicId && isCloudinaryConfigured()) {
+      await deleteFromCloudinary(documentPublicId, { resource_type: document.resource_type || 'raw' });
+    } else if (document.path) {
+      const filePath = path.join(__dirname, '..', document.path);
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
     }
 
     // Remove from database

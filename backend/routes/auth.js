@@ -11,7 +11,8 @@ const {
   updatePassword,
   forgotPassword,
   resetPassword,
-  uploadProfileImage
+  uploadProfileImage,
+  deleteProfileImage
 } = require('../controllers/authController');
 const { protect } = require('../middleware/auth');
 const requireDatabaseConnection = require('../middleware/database');
@@ -44,6 +45,7 @@ router.get('/me', requireDatabaseConnection, protect, getMe);
 router.delete('/me', requireDatabaseConnection, protect, deactivateMyAccount);
 router.put('/updateprofile', requireDatabaseConnection, protect, updateProfileValidation, validateRequest, updateProfile);
 router.post('/profile-image', requireDatabaseConnection, protect, profileImageUpload.single('profileImage'), uploadProfileImage);
+router.delete('/profile-image', requireDatabaseConnection, protect, deleteProfileImage);
 router.put('/updatepassword', requireDatabaseConnection, protect, updatePasswordValidation, validateRequest, updatePassword);
 router.post('/forgotpassword', requireDatabaseConnection, authForgotPasswordLimiter, forgotPasswordValidation, validateRequest, forgotPassword);
 router.put('/resetpassword/:token', requireDatabaseConnection, resetPasswordValidation, validateRequest, resetPassword);

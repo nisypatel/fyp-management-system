@@ -12,6 +12,7 @@ import Navbar from '../components/Navbar';
 import DashboardHeader from '../components/ui/DashboardHeader';
 import StatsCard from '../components/ui/StatsCard';
 import StatusBadge from '../components/ui/StatusBadge';
+import DocumentActions from '../components/ui/DocumentActions';
 
 const DEPARTMENTS = [
   'Computer Science',
@@ -630,8 +631,8 @@ const AdminDashboard = () => {
                         <table>
                           <thead>
                             <tr>
-                              <th>Project</th>
                               <th>Student</th>
+                              <th>Project</th>
                               <th>Current Phase</th>
                               <th>Status</th>
                               <th>Inactive (days)</th>
@@ -641,8 +642,8 @@ const AdminDashboard = () => {
                           <tbody>
                             {stats.delayedAlerts.map((alert) => (
                               <tr key={alert.projectId}>
-                                <td>{alert.title}</td>
                                 <td>{alert.studentName}</td>
+                                <td>{alert.title}</td>
                                 <td>{alert.currentPhaseTitle}</td>
                                 <td><StatusBadge status={alert.currentPhaseStatus} prefix="Phase" /></td>
                                 <td>{alert.inactiveDays}</td>
@@ -719,8 +720,8 @@ const AdminDashboard = () => {
                   <table>
                     <thead>
                       <tr>
-                        <th>Title</th>
                         <th>Student</th>
+                        <th>Title</th>
                         <th>Supervisor</th>
                         <th>Category</th>
                         <th>Status</th>
@@ -733,12 +734,12 @@ const AdminDashboard = () => {
                         <tr><td colSpan="7" style={{textAlign: "center", padding: "2rem"}}>No projects found.</td></tr>
                       ) : filteredProjects.map(project => (
                         <tr key={project._id}>
-                          <td>{project.title}</td>
                           <td>
                             {project.student.name}
                             <br />
                             <small>{project.student.enrollmentNumber}</small>
                           </td>
+                          <td>{project.title}</td>
                           <td>
                             {project.supervisor ? (
                               <>
@@ -1102,13 +1103,7 @@ const AdminDashboard = () => {
                             <td className="action-cell">
                               <div className="action-group">
                                 {user.idCardFile && (
-                                  <button
-                                    className="btn btn-sm btn-outline"
-                                    onClick={() => window.open(`/api/files/download/${user.idCardFile.filename}`, '_blank')}
-                                    style={{ minWidth: '60px' }}
-                                  >
-                                    View ID
-                                  </button>
+                                  <DocumentActions file={user.idCardFile} />
                                 )}
                                 <button
                                   className="btn btn-sm btn-success"

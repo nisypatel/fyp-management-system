@@ -130,8 +130,8 @@ const FacultyDashboard = () => {
                     <table>
                       <thead>
                         <tr>
-                          <th>Project Title</th>
                           <th>Student</th>
+                          <th>Project Title</th>
                           <th>Category</th>
                           <th>Status</th>
                           <th>Progress</th>
@@ -141,12 +141,12 @@ const FacultyDashboard = () => {
                       <tbody>
                         {filteredProjects.map(project => (
                           <tr key={project._id}>
-                            <td>{project.title}</td>
                             <td>
                               {project.student.name}
                               <br />
                               <small>{project.student.enrollmentNumber}</small>
                             </td>
+                            <td>{project.title}</td>
                             <td>{project.category}</td>
                             <td>
                               <StatusBadge status={project.status} />
@@ -186,8 +186,8 @@ const FacultyDashboard = () => {
                     <table>
                       <thead>
                         <tr>
-                          <th>Project Title</th>
                           <th>Student</th>
+                          <th>Project Title</th>
                           <th>Category</th>
                           <th>Description</th>
                           <th>Actions</th>
@@ -196,7 +196,6 @@ const FacultyDashboard = () => {
                       <tbody>
                         {requests.map(project => (
                           <tr key={project._id}>
-                            <td>{project.title}</td>
                             <td>
                               {project.student.name}
                               <br />
@@ -204,6 +203,7 @@ const FacultyDashboard = () => {
                               <br />
                               <small>{project.student.email}</small>
                             </td>
+                            <td>{project.title}</td>
                             <td>{project.category}</td>
                             <td>
                               <small>{project.description.substring(0, 100)}...</small>

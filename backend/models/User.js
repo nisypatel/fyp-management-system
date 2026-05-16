@@ -58,6 +58,26 @@ const userSchema = new mongoose.Schema({
     match: [/^[0-9]{10}$/, 'Please add a valid phone number']
   },
   avatar: {
+    secure_url: {
+      type: String,
+      default: null
+    },
+    public_id: {
+      type: String,
+      default: null
+    },
+    original_filename: {
+      type: String,
+      default: null
+    },
+    resource_type: {
+      type: String,
+      default: null
+    },
+    format: {
+      type: String,
+      default: null
+    },
     publicId: {
       type: String,
       default: null
@@ -90,6 +110,11 @@ const userSchema = new mongoose.Schema({
   otpToken: String,
   otpExpires: Date,
   idCardFile: {
+    secure_url: String,
+    public_id: String,
+    original_filename: String,
+    resource_type: String,
+    format: String,
     filename: String,
     originalName: String,
     path: String,

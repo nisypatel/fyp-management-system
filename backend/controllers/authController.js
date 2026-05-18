@@ -34,7 +34,7 @@ const sendTokenResponse = (user, statusCode, res) => {
       name: user.name,
       email: user.email,
       role: user.role,
-      department: user.department,
+      department: (user.department && user.department.name) ? user.department.name : (user.department || ''),
       enrollmentNumber: user.enrollmentNumber,
       employeeId: user.employeeId
     }
@@ -125,15 +125,47 @@ exports.register = async (req, res) => {
       userData.phone = phone;
     }
 
+    const Department = require('../models/Department');
     if (role === 'student' || !role) {
-      userData.department = department;
+      if (!department) {
+        return res.status(400).json({ success: false, message: 'Department is required for students' });
+      }
+      // resolve department id
+      if (typeof department === 'string') {
+        const mongoose = require('mongoose');
+        if (mongoose.Types.ObjectId.isValid(department)) {
+          const found = await Department.findById(department);
+          if (!found) return res.status(400).json({ success: false, message: 'Invalid department' });
+          userData.department = found._id;
+        } else {
+          const found = await Department.findOne({ name: department.trim() });
+          if (!found) return res.status(400).json({ success: false, message: 'Invalid department' });
+          userData.department = found._id;
+        }
+      }
       userData.enrollmentNumber = enrollmentNumber;
     } else if (role === 'teacher') {
-      userData.department = department;
+      if (!department) {
+        return res.status(400).json({ success: false, message: 'Department is required for faculty' });
+      }
+      if (typeof department === 'string') {
+        const mongoose = require('mongoose');
+        if (mongoose.Types.ObjectId.isValid(department)) {
+          const found = await Department.findById(department);
+          if (!found) return res.status(400).json({ success: false, message: 'Invalid department' });
+          userData.department = found._id;
+        } else {
+          const found = await Department.findOne({ name: department.trim() });
+          if (!found) return res.status(400).json({ success: false, message: 'Invalid department' });
+          userData.department = found._id;
+        }
+      }
       userData.employeeId = employeeId;
     }
 
-    const user = await User.create(userData);
+    let user = await User.create(userData);
+    // populate department for response
+    user = await User.findById(user._id).populate({ path: 'department', select: 'name' });
 
     // Send welcome email
     try {
@@ -186,24 +218,6 @@ exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Check if user is already logged in (verify any existing token cookie)
-    if (req.cookies.token && req.cookies.token !== 'none') {
-      try {
-        const decoded = jwt.verify(req.cookies.token, process.env.JWT_SECRET);
-        const existingUser = await User.findById(decoded.id);
-        
-        // Deny login if they are currently logged in as ANY active user
-        if (existingUser && existingUser.isActive) {
-          return res.status(403).json({
-            success: false,
-            message: 'Another user session is active. Please logout first.'
-          });
-        }
-      } catch (err) {
-        // Token invalid, proceed with normal login
-      }
-    }
-
     // Validate email & password
     if (!email || !password) {
       return res.status(400).json({
@@ -240,7 +254,9 @@ exports.login = async (req, res) => {
       });
     }
 
-    sendTokenResponse(user, 200, res);
+    // Populate department for response
+    const populatedUser = await User.findById(user._id).populate({ path: 'department', select: 'name' });
+    sendTokenResponse(populatedUser, 200, res);
   } catch (error) {
     res.status(400).json({
       success: false,
@@ -254,11 +270,17 @@ exports.login = async (req, res) => {
 // @access  Private
 exports.getMe = async (req, res) => {
   try {
-    const user = await User.findById(req.user.id);
+    const user = await User.findById(req.user.id).populate({ path: 'department', select: 'name' });
+
+    // normalize department to string for backward compatibility
+    const userObj = user ? user.toObject() : null;
+    if (userObj && userObj.department) {
+      userObj.department = userObj.department.name || userObj.department;
+    }
 
     res.status(200).json({
       success: true,
-      user
+      user: userObj
     });
   } catch (error) {
     res.status(400).json({

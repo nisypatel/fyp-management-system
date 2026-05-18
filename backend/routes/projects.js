@@ -4,6 +4,7 @@ const {
   createProject,
   getProjects,
   getProject,
+  generateCertificate,
   requestSupervisor,
   supervisorResponse,
   adminApproval,
@@ -65,6 +66,9 @@ router.put('/phase-template', protect, authorize('admin'), updatePhaseTemplateVa
 
 router.route('/:id')
   .get(protect, objectIdRule('id', 'Project id'), validateRequest, getProject);
+
+// Certificate download (students only, owner or team member)
+router.get('/:id/certificate', protect, authorize('student'), objectIdRule('id', 'Project id'), validateRequest, generateCertificate);
 
 router.put('/:id/request-supervisor', protect, authorize('student'), requestSupervisorValidation, validateRequest, requestSupervisor);
 router.put('/:id/supervisor-response', protect, authorize('faculty'), supervisorResponseValidation, validateRequest, supervisorResponse);

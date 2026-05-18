@@ -1,6 +1,6 @@
 // Purpose: Login page for existing users.
-import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-toastify';
 import usePageTitle from '../hooks/usePageTitle';
@@ -11,9 +11,41 @@ const Login = () => {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const { login } = useAuth();
-  const navigate = useNavigate();
+  const emailRef = useRef(null);
+  const passwordRef = useRef(null);
 
   usePageTitle('Login | FYP Management');
+
+  useEffect(() => {
+    const clearLoginForm = () => {
+      setFormData({ email: '', password: '' });
+      setShowPassword(false);
+
+      const clearDomValues = () => {
+        if (emailRef.current) {
+          emailRef.current.value = '';
+        }
+        if (passwordRef.current) {
+          passwordRef.current.value = '';
+        }
+      };
+
+      clearDomValues();
+      requestAnimationFrame(clearDomValues);
+      requestAnimationFrame(() => requestAnimationFrame(clearDomValues));
+    };
+
+    clearLoginForm();
+
+    const handlePageShow = () => {
+      clearLoginForm();
+    };
+
+    window.addEventListener('pageshow', handlePageShow);
+    return () => {
+      window.removeEventListener('pageshow', handlePageShow);
+    };
+  }, []);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -29,7 +61,6 @@ const Login = () => {
     if (result.success) {
       toast.success('Login successful!');
       setFormData({ email: '', password: '' });
-      navigate('/');
     } else {
       toast.error(result.message);
     }
@@ -51,21 +82,50 @@ const Login = () => {
           <div className="auth-card">
             <h1 className="auth-title">FYP Management</h1>
             <p className="auth-subtitle">Sign in to your account</p>
-            <form onSubmit={handleSubmit} autoComplete="off">
+            <form onSubmit={handleSubmit} autoComplete="on" name="login-form">
+              <input
+                type="email"
+                name="username"
+                autoComplete="username"
+                tabIndex={-1}
+                aria-hidden="true"
+                value=""
+                readOnly
+                style={{ position: 'absolute', opacity: 0, width: 0, height: 0, pointerEvents: 'none' }}
+              />
+              <input
+                type="password"
+                name="password"
+                autoComplete="current-password"
+                tabIndex={-1}
+                aria-hidden="true"
+                value=""
+                readOnly
+                style={{ position: 'absolute', opacity: 0, width: 0, height: 0, pointerEvents: 'none' }}
+              />
               <div className="form-group">
                 <label className="form-label">Email</label>
-                <input type="text" name="email" className="form-input" value={formData.email} onChange={handleChange} autoComplete="off" />
+                <input
+                  type="email"
+                  name="email"
+                  ref={emailRef}
+                  className="form-input"
+                  value={formData.email}
+                  onChange={handleChange}
+                  autoComplete="email"
+                />
               </div>
               <div className="form-group">
                 <label className="form-label">Password</label>
                 <div className="password-wrapper">
                   <input 
                     type={showPassword ? "text" : "password"} 
-                    name="password" 
+                    name="password"
+                    ref={passwordRef}
                     className="form-input" 
                     value={formData.password} 
                     onChange={handleChange}
-                    autoComplete="off" 
+                    autoComplete="new-password"
                   />
                   <button type="button" className="password-toggle" onClick={() => setShowPassword(!showPassword)} title="Toggle Password Visibility">
                     {showPassword ? <FaEyeSlash /> : <FaEye />}

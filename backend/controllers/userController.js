@@ -46,7 +46,7 @@ exports.getUsers = async (req, res) => {
       ];
     }
 
-    const usersQuery = User.find(query).select('-password').sort('-createdAt');
+    const usersQuery = User.find(query).select('-password').populate({ path: 'department', select: 'name' }).sort('-createdAt');
     if (hasPagination) {
       usersQuery.skip(skip).limit(limit);
     }
@@ -56,14 +56,21 @@ exports.getUsers = async (req, res) => {
       User.countDocuments(query)
     ]);
 
+    // normalize department to string for backward compatibility
+    const normalizedUsers = users.map((u) => {
+      const obj = u.toObject();
+      if (obj.department) obj.department = obj.department.name || obj.department;
+      return obj;
+    });
+
     res.status(200).json({
       success: true,
-      count: users.length,
+      count: normalizedUsers.length,
       total,
       page: hasPagination ? page : 1,
       limit: hasPagination ? limit : total,
       totalPages: hasPagination ? Math.ceil(total / limit) : 1,
-      users
+      users: normalizedUsers
     });
   } catch (error) {
     res.status(400).json({
@@ -81,8 +88,19 @@ exports.getFaculty = async (req, res) => {
     const { department, q } = req.query;
     const facultyQuery = { role: 'faculty', isActive: true };
 
-    if (department && department.trim()) {
-      facultyQuery.department = department.trim();
+    if (department && String(department).trim()) {
+      const deptVal = String(department).trim();
+      // If looks like an ObjectId, query by id, otherwise assume it's a department name
+      const mongoose = require('mongoose');
+      if (mongoose.Types.ObjectId.isValid(deptVal)) {
+        facultyQuery.department = mongoose.Types.ObjectId(deptVal);
+      } else {
+        // Some legacy users may still have department stored as string
+        facultyQuery.$or = [
+          { department: deptVal },
+          { department: mongoose.Types.ObjectId.isValid(deptVal) ? mongoose.Types.ObjectId(deptVal) : undefined }
+        ].filter(Boolean);
+      }
     }
 
     if (q && q.trim()) {
@@ -95,6 +113,7 @@ exports.getFaculty = async (req, res) => {
 
     const facultyUsers = await User.find(facultyQuery)
       .select('name email employeeId department')
+      .populate({ path: 'department', select: 'name code' })
       .sort('name');
 
     const [activeLoads, pendingLoads] = await Promise.all([
@@ -158,8 +177,11 @@ exports.getFaculty = async (req, res) => {
           loadTag = 'Available';
         }
 
+        const obj = person.toObject();
+        // Normalize department for response (keep string for backward compatibility)
+        obj.department = person.department ? (person.department.name || String(person.department)) : '';
         return {
-          ...person.toObject(),
+          ...obj,
           workload: {
             activeAssigned,
             pendingRequests,
@@ -269,11 +291,44 @@ exports.createUser = async (req, res) => {
       userData.roleType = roleType._id;
     }
 
+    const Department = require('../models/Department');
     if (normalizedRole === 'student') {
-      userData.department = department;
+      // Validate department id or name
+      let deptId = department;
+      if (!deptId) {
+        return res.status(400).json({ success: false, message: 'Department is required for students' });
+      }
+      if (typeof deptId === 'string') {
+        const mongoose = require('mongoose');
+        if (mongoose.Types.ObjectId.isValid(deptId)) {
+          const found = await Department.findById(deptId);
+          if (!found) return res.status(400).json({ success: false, message: 'Invalid department' });
+          userData.department = found._id;
+        } else {
+          // try find by name
+          const found = await Department.findOne({ name: deptId.trim() });
+          if (!found) return res.status(400).json({ success: false, message: 'Invalid department' });
+          userData.department = found._id;
+        }
+      }
       userData.enrollmentNumber = enrollmentNumber;
     } else if (normalizedRole === 'faculty') {
-      userData.department = department;
+      let deptId = department;
+      if (!deptId) {
+        return res.status(400).json({ success: false, message: 'Department is required for faculty' });
+      }
+      if (typeof deptId === 'string') {
+        const mongoose = require('mongoose');
+        if (mongoose.Types.ObjectId.isValid(deptId)) {
+          const found = await Department.findById(deptId);
+          if (!found) return res.status(400).json({ success: false, message: 'Invalid department' });
+          userData.department = found._id;
+        } else {
+          const found = await Department.findOne({ name: deptId.trim() });
+          if (!found) return res.status(400).json({ success: false, message: 'Invalid department' });
+          userData.department = found._id;
+        }
+      }
       userData.employeeId = employeeId;
     }
 
@@ -309,7 +364,25 @@ exports.updateUser = async (req, res) => {
 
     if (name !== undefined) user.name = name;
     if (email !== undefined) user.email = email.trim().toLowerCase();
-    if (department !== undefined) user.department = department;
+    if (department !== undefined) {
+      const Department = require('../models/Department');
+      if (department === null || department === '') {
+        user.department = department;
+      } else if (typeof department === 'string') {
+        const mongoose = require('mongoose');
+        if (mongoose.Types.ObjectId.isValid(department)) {
+          const found = await Department.findById(department);
+          if (!found) return res.status(400).json({ success: false, message: 'Invalid department' });
+          user.department = found._id;
+        } else {
+          const found = await Department.findOne({ name: department.trim() });
+          if (!found) return res.status(400).json({ success: false, message: 'Invalid department' });
+          user.department = found._id;
+        }
+      } else {
+        user.department = department;
+      }
+    }
     if (phone !== undefined) user.phone = phone;
     if (isActive !== undefined) {
       user.isActive = isActive;

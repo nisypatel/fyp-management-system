@@ -4,6 +4,9 @@ const Project = require('../models/Project');
 const User = require('../models/User');
 const Notification = require('../models/Notification');
 const Preset = require('../models/Preset');
+const SystemSetting = require('../models/SystemSetting');
+const https = require('https');
+const PDFDocument = require('pdfkit');
 const { sendProjectCompletionEmail } = require('../utils/sendEmail');
 const logger = require('../utils/logger');
 const { sanitizeText } = require('../utils/sanitize');
@@ -74,13 +77,276 @@ const parseJsonArray = (value, fallback = []) => {
   }
 };
 
-const isProjectContributor = (project, userId) => {
-  const isOwner = project.student && project.student.toString() === userId;
-  const isAcceptedTeamMember = project.teamMembers.some(
-    (member) => member.student && member.student.toString() === userId && member.inviteStatus === 'accepted'
-  );
+const extractId = (val) => {
+  if (!val) return null;
+  if (typeof val === 'string') return val;
+  if (val._id) return String(val._id);
+  if (val.toString) return val.toString();
+  return null;
+};
 
-  return isOwner || isAcceptedTeamMember;
+const isProjectContributor = (project, userId) => {
+  if (!project || !userId) return false;
+
+  const ownerId = extractId(project.student);
+  if (ownerId === userId) return true;
+
+  if (!Array.isArray(project.teamMembers)) return false;
+
+  return project.teamMembers.some((member) => {
+    const memberId = extractId(member.student || member);
+    const invited = (member.inviteStatus || '').toString().toLowerCase();
+    // treat missing inviteStatus as accepted for migrated/legacy records
+    const accepted = invited === 'accepted' || invited === '';
+    return memberId === userId && accepted;
+  });
+};
+
+const fetchImageBuffer = (url) => new Promise((resolve, reject) => {
+  try {
+    const client = url.startsWith('https') ? https : require('http');
+    client.get(url, (res) => {
+      if (res.statusCode !== 200) return resolve(null);
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => resolve(Buffer.concat(chunks)));
+      res.on('error', () => resolve(null));
+    }).on('error', () => resolve(null));
+  } catch (err) {
+    return resolve(null);
+  }
+});
+
+// @desc Generate and stream project completion certificate PDF
+// @route GET /api/projects/:id/certificate
+// @access Private (Student - project owner/team member)
+exports.generateCertificate = async (req, res) => {
+  try {
+    const project = await Project.findById(req.params.id)
+      .populate('student', 'name email enrollmentNumber department')
+      .populate('supervisor', 'name email employeeId department')
+      .populate('teamMembers.student', 'name enrollmentNumber');
+
+    if (!project) {
+      return res.status(404).json({ success: false, message: 'Project not found' });
+    }
+
+    // Only students (owners or accepted team members) can download
+    if (req.user.role !== 'student') {
+      return res.status(403).json({ success: false, message: 'Not authorized to download certificate' });
+    }
+
+    if (!isProjectContributor(project, req.user.id)) {
+      return res.status(403).json({ success: false, message: 'Not authorized to download this project certificate' });
+    }
+
+    // Eligibility checks: all phases approved and progress === 100
+    const phases = Array.isArray(project.phases) ? project.phases : [];
+    if (phases.length === 0) {
+      return res.status(400).json({ success: false, message: 'Project has no phases configured' });
+    }
+
+    const allApproved = phases.every((p) => p.status === 'approved');
+    if (!allApproved || Number(project.progress) !== 100) {
+      return res.status(400).json({ success: false, message: 'Project is not eligible for a completion certificate' });
+    }
+
+    // Prepare members list: include owner then accepted team members (or all teamMembers snapshot)
+    const members = [];
+    if (project.student) {
+      members.push({ name: project.student.name || 'Student', enrollmentNumber: project.student.enrollmentNumber || '' });
+    }
+    if (Array.isArray(project.teamMembers) && project.teamMembers.length) {
+      for (const m of project.teamMembers) {
+        // include even if inviteStatus not accepted to reflect recorded team; prefer populated student info
+        const name = (m.student && m.student.name) || m.name || '';
+        const enroll = (m.student && m.student.enrollmentNumber) || m.enrollmentNumber || '';
+        // avoid duplicating owner
+        if (project.student && name === project.student.name) continue;
+        members.push({ name: name || 'Member', enrollmentNumber: enroll || '' });
+      }
+    }
+
+    // Fetch college name and logo if available
+    const collegeNameSetting = await SystemSetting.findOne({ key: 'college_name' }).lean();
+    const collegeLogoSetting = await SystemSetting.findOne({ key: 'college_logo_url' }).lean();
+    const collegeName = (collegeNameSetting && collegeNameSetting.value) ? collegeNameSetting.value : (process.env.COLLEGE_NAME || 'College');
+    const logoUrl = collegeLogoSetting?.value;
+
+    // Resolve disposition: attachment (download) or inline (preview)
+    const wantInline = String(req.query.inline || '').toLowerCase() === '1' || String(req.query.inline || '').toLowerCase() === 'true';
+    // Log resolved college name for debugging when it's unexpectedly missing
+    logger.info('Generating certificate', { collegeNameSetting: collegeNameSetting, resolvedCollegeName: collegeName, projectId: project._id });
+
+    // Setup PDF response headers
+    res.setHeader('Content-Type', 'application/pdf');
+    if (wantInline) {
+      res.setHeader('Content-Disposition', 'inline; filename="project-completion-certificate.pdf"');
+    } else {
+      res.setHeader('Content-Disposition', 'attachment; filename="project-completion-certificate.pdf"');
+    }
+
+    const doc = new PDFDocument({ size: 'A4', margin: 50 });
+    doc.info.Title = 'Project Completion Certificate';
+
+    // Pipe PDF to response
+    doc.pipe(res);
+
+    // Helper utilities for layout
+    const pageInnerWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+
+    const fitFontSize = (text, fontName, maxWidth, startSize = 18, minSize = 8) => {
+      let size = startSize;
+      doc.font(fontName).fontSize(size);
+      while (size > minSize && doc.widthOfString(text) > maxWidth) {
+        size -= 1;
+        doc.fontSize(size);
+      }
+      return size;
+    };
+
+    const addCentered = (text, options = {}) => {
+      const { font = 'Times-Roman', size = 12, gap = 0.5 } = options;
+      doc.font(font).fontSize(size).text(text, { align: 'center', width: pageInnerWidth });
+      if (gap) doc.moveDown(gap);
+    };
+
+    // Draw logo centered if available
+    if (logoUrl) {
+      const buf = await fetchImageBuffer(logoUrl);
+      if (buf) {
+        try {
+          const maxLogoWidth = 120;
+          const maxLogoHeight = 80;
+          const x = doc.page.margins.left + (pageInnerWidth - maxLogoWidth) / 2;
+          doc.image(buf, x, doc.y, { fit: [maxLogoWidth, maxLogoHeight], align: 'center' });
+          doc.moveDown(1);
+        } catch (err) {
+          // ignore image errors
+        }
+      }
+    }
+
+    // Header: College name and title
+    const collegeFontSize = fitFontSize(String(collegeName), 'Times-Bold', pageInnerWidth, 20, 10);
+    
+    // Position content a bit lower for a balanced page (near vertical center)
+    const pageAvailableHeight = doc.page.height - doc.page.margins.top - doc.page.margins.bottom;
+    const topOffset = Math.max(60, Math.floor(pageAvailableHeight / 8));
+    doc.y = doc.page.margins.top + topOffset;
+
+    addCentered(String(collegeName), { font: 'Times-Bold', size: collegeFontSize, gap: 0.3 });
+
+    addCentered('Certificate of Completion', { font: 'Times-Bold', size: 16, gap: 0.8 });
+
+    // Project title handling
+    const title = String(project.title || 'Untitled Project');
+    const titleFontStart = 14;
+    const titleFontSize = fitFontSize(title, 'Times-Bold', pageInnerWidth * 0.9, titleFontStart, 10);
+
+    // Decide layout based on members count
+    const isIndividual = members.length <= 1;
+
+    if (isIndividual) {
+      // Individual layout: prominent student name, centered
+      addCentered('This is to certify that', { font: 'Times-Roman', size: 12, gap: 0.4 });
+
+      const studentName = members[0] ? members[0].name || (project.student && project.student.name) : (project.student && project.student.name);
+      const displayName = String(studentName || 'Student');
+      const nameFontSize = fitFontSize(displayName, 'Times-Bold', pageInnerWidth * 0.9, 22, 12);
+      addCentered(displayName, { font: 'Times-Bold', size: nameFontSize, gap: 0.6 });
+
+      addCentered('has successfully completed the project titled', { font: 'Times-Roman', size: 12, gap: 0.4 });
+      addCentered(title, { font: 'Times-Bold', size: titleFontSize, gap: 0.8 });
+
+      // Details row - use populated values when available, omit empty fields
+      const academicYear = process.env.ACADEMIC_YEAR || new Date().getFullYear().toString();
+      const deptVal = project.student && project.student.department ? project.student.department : (project.department || null);
+      const departmentName = (deptVal && typeof deptVal === 'object') ? (deptVal.name || '') : (deptVal || '');
+      const guideName = (project.supervisor && project.supervisor.name) ? project.supervisor.name : (project.guide || '');
+
+      doc.moveDown(0.2);
+      const detailsParts = [];
+      if (departmentName) detailsParts.push(`Department: ${departmentName}`);
+      if (guideName) detailsParts.push(`Guide: ${guideName}`);
+      if (academicYear) detailsParts.push(`Academic Year: ${academicYear}`);
+      if (detailsParts.length) addCentered(detailsParts.join('    •    '), { font: 'Times-Roman', size: 10, gap: 1.2 });
+
+      addCentered(`Completion Date: ${new Date().toLocaleDateString()}`, { font: 'Times-Roman', size: 10, gap: 1.2 });
+
+      addCentered('This certificate is awarded in recognition of the successful completion of project requirements as approved by the faculty.', { font: 'Times-Roman', size: 11, gap: 1.2 });
+
+      // Add a descriptive paragraph to avoid empty space and improve presentation
+      addCentered('In recognition of academic diligence, adherence to project objectives, and satisfactory evaluation by the supervisory committee, this document certifies completion of the final year project requirements.', { font: 'Times-Roman', size: 10, gap: 1.4 });
+
+    } else {
+      // Group layout: title first, then member list
+      addCentered('This is to certify that the following students have successfully completed the project titled', { font: 'Times-Roman', size: 12, gap: 0.4 });
+      addCentered(title, { font: 'Times-Bold', size: titleFontSize, gap: 0.8 });
+
+      const academicYear = process.env.ACADEMIC_YEAR || new Date().getFullYear().toString();
+      const deptVal = project.student && project.student.department ? project.student.department : (project.department || null);
+      const departmentName = (deptVal && typeof deptVal === 'object') ? (deptVal.name || '') : (deptVal || '');
+      const guideName = (project.supervisor && project.supervisor.name) ? project.supervisor.name : (project.guide || '');
+
+      doc.moveDown(0.3);
+      const parts = [];
+      if (departmentName) parts.push(`Department: ${departmentName}`);
+      if (guideName) parts.push(`Guide: ${guideName}`);
+      if (academicYear) parts.push(`Academic Year: ${academicYear}`);
+      if (parts.length) addCentered(parts.join('    •    '), { font: 'Times-Roman', size: 10, gap: 0.8 });
+
+      // Members list: render numbered list, break pages as needed
+      doc.moveDown(0.4);
+      doc.font('Times-Bold').fontSize(12).text('Team Members:', doc.x, doc.y);
+      doc.moveDown(0.3);
+      doc.font('Times-Roman').fontSize(11);
+
+      const startY = doc.y;
+      const lineHeight = 16;
+      for (let i = 0; i < members.length; i++) {
+        const m = members[i];
+        const name = m.name || 'Student';
+        const enroll = m.enrollmentNumber ? ` — ${m.enrollmentNumber}` : '';
+        const text = `${i + 1}. ${name}${enroll}`;
+
+        // Page break if near bottom
+        if (doc.y + lineHeight > doc.page.height - doc.page.margins.bottom - 120) {
+          doc.addPage();
+          // reprint header on new page
+          addCentered(collegeName, { font: 'Times-Bold', size: 12, gap: 0.2 });
+          addCentered('Certificate of Completion (continued)', { font: 'Times-Bold', size: 11, gap: 0.8 });
+          doc.moveDown(0.5);
+        }
+
+        doc.text(text, { width: pageInnerWidth, align: 'left' });
+        doc.moveDown(0.2);
+      }
+
+      doc.moveDown(0.8);
+      addCentered('This certificate is awarded in recognition of the successful completion of project requirements as approved by the faculty.', { font: 'Times-Roman', size: 11, gap: 1.2 });
+
+      // Add a descriptive paragraph for group certificates for better balance
+      addCentered('This certificate acknowledges the collective effort of the team in meeting the project objectives, fulfilling evaluation criteria, and contributing to the academic goals of the department.', { font: 'Times-Roman', size: 10, gap: 1.4 });
+    }
+
+    // Signature area: two placeholders (Faculty Guide, Head of Department)
+    const sigTop = Math.max(doc.y + 30, doc.page.height - doc.page.margins.bottom - 120);
+    const sigCols = 2;
+    const sigColWidth = pageInnerWidth / sigCols;
+    const sigLabels = ['Faculty Guide', 'Head of Department'];
+
+    for (let i = 0; i < sigCols; i++) {
+      const x = doc.page.margins.left + i * sigColWidth + 20;
+      const y = sigTop;
+      doc.moveTo(x, y).lineTo(x + sigColWidth - 40, y).stroke();
+      doc.font('Times-Roman').fontSize(10).text(sigLabels[i], x, y + 6, { width: sigColWidth - 40, align: 'center' });
+    }
+
+    doc.end();
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'Failed to generate certificate' });
+  }
 };
 
 const isZipFile = (file) => {
@@ -142,6 +408,13 @@ const getConfiguredPhaseTemplate = async () => {
   const preset = await Preset.findOne({ isActive: true });
   return normalizePhaseDefinitions(preset?.phases || []);
 };
+
+const getPopulatedProjectById = async (projectId) => Project.findById(projectId)
+  .populate('student', 'name email enrollmentNumber department phone')
+  .populate('supervisor', 'name email employeeId department phone')
+  .populate('feedback.from', 'name role')
+  .populate('phases.feedback.from', 'name role')
+  .populate('documents.uploadedBy', 'name role');
 
 // @desc    Get active preset phases
 // @route   GET /api/projects/phase-template
@@ -582,9 +855,11 @@ exports.getProject = async (req, res) => {
       });
     }
 
+    const updatedProject = await getPopulatedProjectById(project._id);
+
     res.status(200).json({
       success: true,
-      project
+      project: updatedProject || project
     });
   } catch (error) {
     res.status(400).json({
@@ -896,7 +1171,12 @@ exports.adminRemoveProject = async (req, res) => {
       );
     }
 
-    res.status(200).json({ success: true, project });
+    const updatedProject = await getPopulatedProjectById(project._id);
+
+    res.status(200).json({
+      success: true,
+      project: updatedProject || project
+    });
   } catch (error) {
     res.status(400).json({ success: false, message: 'An error occurred. Please try again.' });
   }
@@ -1071,9 +1351,11 @@ exports.addFeedback = async (req, res) => {
       project._id
     );
 
+    const updatedProject = await getPopulatedProjectById(project._id);
+
     res.status(200).json({
       success: true,
-      project
+      project: updatedProject || project
     });
   } catch (error) {
     res.status(400).json({
@@ -1091,19 +1373,12 @@ exports.uploadDocument = async (req, res) => {
     const title = sanitizeText(req.body.title || '');
 
     if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please upload a file'
-      });
+      return res.status(400).json({ success: false, message: 'Please upload a file' });
     }
 
     const project = await Project.findById(req.params.id);
-
     if (!project) {
-      return res.status(404).json({
-        success: false,
-        message: 'Project not found'
-      });
+      return res.status(404).json({ success: false, message: 'Project not found' });
     }
 
     const canUpload =
@@ -1112,27 +1387,17 @@ exports.uploadDocument = async (req, res) => {
       isProjectContributor(project, req.user.id);
 
     if (!canUpload) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to upload documents to this project'
-      });
+      return res.status(403).json({ success: false, message: 'Not authorized to upload documents for this project' });
     }
 
-    if (title && title.trim().length > 150) {
-      return res.status(400).json({
-        success: false,
-        message: 'Document title cannot exceed 150 characters'
-      });
-    }
-
-    // Upload to Cloudinary with organized folder structure
+    // Upload to Cloudinary
     const uploadResult = await uploadFileToCloudinary(req.file, {
       folderContext: {
         userRole: req.user.role,
         userId: req.user.id,
         projectId: project._id.toString(),
         projectTitle: project.title,
-        fileType: 'documents'
+        fileType: 'project-document'
       }
     });
 
@@ -1146,15 +1411,19 @@ exports.uploadDocument = async (req, res) => {
       filename: uploadResult.filename,
       originalName: uploadResult.originalName,
       size: uploadResult.bytes,
+      uploadedAt: new Date(),
       uploadedBy: req.user.id
     };
 
+    project.documents = project.documents || [];
     project.documents.push(documentRecord);
+
     appendAuditEntry(project, {
       userId: req.user.id,
       action: 'document_uploaded',
-      changes: `Document uploaded: ${title || req.file.originalname}`
+      changes: `Document uploaded: ${documentRecord.title}`
     });
+
     await project.save();
 
     // Notify relevant parties
@@ -1169,15 +1438,9 @@ exports.uploadDocument = async (req, res) => {
       );
     }
 
-    res.status(200).json({
-      success: true,
-      project
-    });
+    res.status(200).json({ success: true, project });
   } catch (error) {
-    res.status(400).json({
-      success: false,
-      message: 'An error occurred. Please try again.'
-    });
+    res.status(400).json({ success: false, message: 'An error occurred. Please try again.' });
   }
 };
 

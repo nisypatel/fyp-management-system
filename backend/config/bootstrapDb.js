@@ -37,7 +37,9 @@ const DEFAULT_PHASE_TEMPLATES = [
   }
 ];
 
-const collections = [User, Project, Notification, PhaseTemplate, RefreshToken];
+const Department = require('../models/Department');
+
+const collections = [User, Project, Notification, PhaseTemplate, RefreshToken, Department];
 
 const seedPhaseTemplates = async () => {
   const existingCount = await PhaseTemplate.countDocuments();
@@ -55,6 +57,27 @@ const bootstrapDatabase = async () => {
   // Use syncIndexes to safely create/update indexes without conflicts
   await Promise.all(collections.map((model) => model.syncIndexes()));
   await seedPhaseTemplates();
+  // Migrate existing string departments into Department collection
+  try {
+    // Find distinct department values where stored as string (legacy)
+    const legacyDepartments = await User.aggregate([
+      { $match: { department: { $exists: true, $ne: null, $type: 'string' } } },
+      { $group: { _id: '$department' } }
+    ]).then(rows => rows.map(r => r._id).filter(Boolean));
+
+    for (const deptName of legacyDepartments) {
+      const name = String(deptName).trim();
+      if (!name) continue;
+      let dept = await Department.findOne({ name });
+      if (!dept) {
+        dept = await Department.create({ name });
+      }
+      // Update users with string department to reference this dept id
+      await User.updateMany({ department: name }, { $set: { department: dept._id } });
+    }
+  } catch (err) {
+    console.warn('Department migration skipped or failed', err.message);
+  }
 };
 
 module.exports = bootstrapDatabase;

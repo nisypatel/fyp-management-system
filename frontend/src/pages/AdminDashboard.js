@@ -13,17 +13,10 @@ import DashboardHeader from '../components/ui/DashboardHeader';
 import StatsCard from '../components/ui/StatsCard';
 import StatusBadge from '../components/ui/StatusBadge';
 import DocumentActions from '../components/ui/DocumentActions';
+import { triggerProjectSync } from '../utils/projectSync';
 
-const DEPARTMENTS = [
-  'Computer Science',
-  'Electronics Engineering',
-  'Electrical Engineering',
-  'Mechanical Engineering',
-  'Civil Engineering',
-  'Information Technology',
-  'Business Administration',
-  'Other'
-];
+import { departmentService } from '../services/departmentService';
+import { systemService } from '../services/systemService';
 
 const SUBMISSION_TYPE_OPTIONS = [
   { value: 'file', label: 'File upload' },
@@ -74,9 +67,21 @@ const AdminDashboard = () => {
   const [phaseTemplateLoading, setPhaseTemplateLoading] = useState(false);
   const [savingPhaseTemplate, setSavingPhaseTemplate] = useState(false);
   const [presets, setPresets] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [showDeptModal, setShowDeptModal] = useState(false);
+  const [deptForm, setDeptForm] = useState({ name: '', code: '' });
+  const [editingDept, setEditingDept] = useState(null);
+  const [deptToDelete, setDeptToDelete] = useState(null);
+  const [deptSaving, setDeptSaving] = useState(false);
   const [pendingVerifications, setPendingVerifications] = useState([]);
   const [verificationDomain, setVerificationDomain] = useState('');
   const [savingVerificationDomain, setSavingVerificationDomain] = useState(false);
+  const [collegeName, setCollegeName] = useState('');
+  const [collegeLogoUrl, setCollegeLogoUrl] = useState('');
+  const [savingSystemSettings, setSavingSystemSettings] = useState(false);
+  const [logoFile, setLogoFile] = useState(null);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [logoPreviewUrl, setLogoPreviewUrl] = useState('');
   const [showPresetModal, setShowPresetModal] = useState(false);
   const [presetName, setPresetName] = useState('');
   const [presetPhases, setPresetPhases] = useState([createPhaseRow('Phase 1')]);
@@ -161,6 +166,14 @@ const AdminDashboard = () => {
         ]);
         setPendingVerifications(verifications);
         setVerificationDomain(verificationConfig.verificationDomain || '');
+        // also fetch college settings into local state
+        try {
+          const settings = await systemService.getSettings();
+          setCollegeName(settings.college_name || '');
+          setCollegeLogoUrl(settings.college_logo_url || '');
+        } catch (err) {
+          // ignore
+        }
       }
     } catch (error) {
       if (activeTab === 'phases') {
@@ -172,16 +185,70 @@ const AdminDashboard = () => {
     }
   }, [activeTab, projectsPagination.page, projectsPagination.limit, usersPagination.page, usersPagination.limit, projectSearch, userSearch, userRoleFilter]);
 
+
   useEffect(() => {
     if (user) {
       fetchDashboardData();
     }
   }, [activeTab, user, fetchDashboardData]);
 
+  useEffect(() => {
+    const loadDepartments = async () => {
+      try {
+        const depts = await departmentService.getDepartments();
+        setDepartments(depts || []);
+      } catch (err) {
+        // ignore
+      }
+    };
+    if (user) loadDepartments();
+  }, [user]);
+
+  useEffect(() => {
+    const loadSystemSettings = async () => {
+      try {
+        const settings = await systemService.getSettings();
+        setCollegeName(settings.college_name || '');
+        setCollegeLogoUrl(settings.college_logo_url || '');
+      } catch (err) {
+        // ignore
+      }
+    };
+
+    if (user) loadSystemSettings();
+  }, [user]);
+
+  // manage logo preview URL for local file or saved URL
+  useEffect(() => {
+    let objectUrl = null;
+    if (logoFile) {
+      objectUrl = URL.createObjectURL(logoFile);
+      setLogoPreviewUrl(objectUrl);
+    } else if (collegeLogoUrl) {
+      setLogoPreviewUrl(collegeLogoUrl);
+    } else {
+      setLogoPreviewUrl('');
+    }
+
+    return () => {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [logoFile, collegeLogoUrl]);
+
   const handleProjectApproval = async (projectId, status) => {
     setLoading(true);
     try {
       await projectService.adminApprove(projectId, status);
+      setProjects((currentProjects) => currentProjects.map((project) => (
+        project._id === projectId
+          ? {
+              ...project,
+              adminStatus: status,
+              status: status === 'approved' ? 'in-progress' : 'rejected'
+            }
+          : project
+      )));
+      triggerProjectSync(projectId);
       toast.success(`Project ${status} successfully!`);
       fetchDashboardData();
     } catch (error) {
@@ -197,6 +264,18 @@ const AdminDashboard = () => {
       fetchDashboardData();
     } catch (error) {
       toast.error('Error restoring project');
+    }
+  };
+
+  const saveSystemSettings = async () => {
+    setSavingSystemSettings(true);
+    try {
+      await systemService.updateSettings({ collegeName, collegeLogoUrl });
+      toast.success('System settings updated');
+    } catch (err) {
+      toast.error('Error saving settings');
+    } finally {
+      setSavingSystemSettings(false);
     }
   };
 
@@ -653,6 +732,12 @@ const AdminDashboard = () => {
                   onClick={() => setActiveTab('verification')}
                 >
                   Verification
+                </button>
+                <button
+                  className={`btn ${activeTab === 'departments' ? 'btn-primary' : 'btn-outline'}`}
+                  onClick={() => setActiveTab('departments')}
+                >
+                  Manage Departments
                 </button>
               </div>
               {activeTab === 'users' && (
@@ -1166,6 +1251,62 @@ const AdminDashboard = () => {
                         {savingVerificationDomain ? 'Saving...' : 'Save Domain'}
                       </button>
                     </div>
+                    <div style={{ marginTop: '1rem', paddingTop: '0.75rem', borderTop: '1px dashed #e6eef9' }}>
+                      <label className="form-label" style={{ margin: 0, fontWeight: 700 }}>College Name</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        value={collegeName}
+                        onChange={(e) => setCollegeName(e.target.value)}
+                        placeholder="Enter college name to show on certificates"
+                        style={{ maxWidth: '520px', marginTop: '0.5rem' }}
+                      />
+                      <label className="form-label" style={{ margin: '0.6rem 0 0', fontWeight: 700 }}>College Logo URL</label>
+                      <input
+                        type="url"
+                        className="form-input"
+                        value={collegeLogoUrl}
+                        onChange={(e) => setCollegeLogoUrl(e.target.value)}
+                        placeholder="https://example.edu/logo.png"
+                        style={{ maxWidth: '520px', marginTop: '0.5rem' }}
+                      />
+                      <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                          <input type="file" accept="image/png,image/jpeg" onChange={(e) => setLogoFile(e.target.files[0] || null)} />
+                          <button className="btn" onClick={async () => {
+                            if (!logoFile) return toast.error('Select an image first');
+                            setUploadingLogo(true);
+                            try {
+                              const fd = new FormData(); fd.append('logo', logoFile);
+                              const resp = await systemService.uploadLogo(fd);
+                              if (resp && resp.url) setCollegeLogoUrl(resp.url);
+                              setLogoFile(null);
+                              toast.success('Logo uploaded');
+                            } catch (err) {
+                              toast.error('Error uploading logo');
+                            } finally {
+                              setUploadingLogo(false);
+                            }
+                          }} disabled={uploadingLogo}>{uploadingLogo ? 'Uploading...' : 'Upload Logo'}</button>
+                        </div>
+                        <button className="btn btn-primary" onClick={saveSystemSettings} disabled={savingSystemSettings}>
+                          {savingSystemSettings ? 'Saving...' : 'Save Settings'}
+                        </button>
+                        <small style={{ marginLeft: '0.75rem', color: '#6b7280' }}>You can upload a logo image (PNG/JPEG) or provide a URL.</small>
+                      </div>
+                      {(logoPreviewUrl || collegeLogoUrl) && (
+                        <div style={{ marginTop: '0.75rem' }}>
+                          <label className="form-label" style={{ margin: 0, fontWeight: 700 }}>Logo Preview</label>
+                          <div style={{ marginTop: '0.5rem' }}>
+                            <img
+                              src={logoPreviewUrl || collegeLogoUrl}
+                              alt="College logo preview"
+                              style={{ maxWidth: '180px', maxHeight: '80px', objectFit: 'contain', border: '1px solid #e6eef9', padding: '6px', borderRadius: '6px', background: '#fff' }}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                   <div className="table-responsive">
                     <table className="table">
@@ -1215,6 +1356,49 @@ const AdminDashboard = () => {
                       </tbody>
                     </table>
                   </div>
+                </div>
+              </div>
+            )}
+            {activeTab === 'departments' && (
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                  <h3 style={{ margin: 0 }}>Departments</h3>
+                  <button className="btn btn-primary" onClick={() => {
+                    setEditingDept(null);
+                    setDeptForm({ name: '', code: '' });
+                    setShowDeptModal(true);
+                  }}>Create Department</button>
+                </div>
+                <div className="table-container">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>Code</th>
+                        <th>Created</th>
+                        <th className="action-cell">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {departments.map((d) => (
+                        <tr key={d._id}>
+                          <td>{d.name}</td>
+                          <td>{d.code || '-'}</td>
+                          <td>{new Date(d.createdAt).toLocaleString()}</td>
+                          <td className="action-cell">
+                            <div className="action-group">
+                              <button className="btn btn-sm btn-outline" onClick={() => {
+                                setEditingDept(d);
+                                setDeptForm({ name: d.name || '', code: d.code || '' });
+                                setShowDeptModal(true);
+                              }}>Edit</button>
+                              <button type="button" className="btn btn-sm btn-danger" onClick={() => setDeptToDelete(d)}>Delete</button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             )}
@@ -1312,6 +1496,93 @@ const AdminDashboard = () => {
           </div>
         )}
 
+        {/* Department Modal */}
+        {showDeptModal && (
+          <div className="modal-overlay" style={{ zIndex: 1050 }} onClick={() => setShowDeptModal(false)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '520px' }}>
+              <div className="modal-header">
+                <h2 className="modal-title">{editingDept ? 'Edit Department' : 'Create Department'}</h2>
+                <button className="modal-close" onClick={() => setShowDeptModal(false)}>×</button>
+              </div>
+              <div className="modal-body">
+                <form onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!deptForm.name.trim()) {
+                    toast.error('Department name is required');
+                    return;
+                  }
+                  setDeptSaving(true);
+                  try {
+                    if (editingDept) {
+                      const updated = await departmentService.updateDepartment(editingDept._id, { name: deptForm.name.trim(), code: deptForm.code ? deptForm.code.trim() : undefined });
+                      setDepartments((prev) => prev.map(x => x._id === updated._id ? updated : x));
+                      toast.success('Department updated');
+                    } else {
+                      const created = await departmentService.createDepartment({ name: deptForm.name.trim(), code: deptForm.code ? deptForm.code.trim() : undefined });
+                      setDepartments((prev) => [created, ...prev]);
+                      toast.success('Department created');
+                    }
+                    setShowDeptModal(false);
+                  } catch (err) {
+                    toast.error(err.response?.data?.message || 'Operation failed');
+                  } finally {
+                    setDeptSaving(false);
+                  }
+                }}>
+                  <div className="form-group">
+                    <label className="form-label">Name *</label>
+                    <input className="form-input" value={deptForm.name} onChange={(e) => setDeptForm({ ...deptForm, name: e.target.value })} required />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Code</label>
+                    <input className="form-input" value={deptForm.code} onChange={(e) => setDeptForm({ ...deptForm, code: e.target.value })} />
+                  </div>
+                  <div className="modal-footer">
+                    <button type="button" className="btn btn-secondary" onClick={() => setShowDeptModal(false)}>Cancel</button>
+                    <button type="submit" className="btn btn-primary" disabled={deptSaving}>{deptSaving ? 'Saving...' : (editingDept ? 'Update' : 'Create')}</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {deptToDelete && (
+          <div className="modal-overlay" style={{ zIndex: 1050 }} onClick={() => setDeptToDelete(null)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '420px' }}>
+              <div className="modal-header">
+                <h2 className="modal-title" style={{ color: '#ef4444' }}>Delete Department</h2>
+                <button className="modal-close" onClick={() => setDeptToDelete(null)}>×</button>
+              </div>
+              <div className="modal-body">
+                <p>
+                  Delete <strong>{deptToDelete.name}</strong>? This cannot be undone.
+                </p>
+                <div className="modal-footer" style={{ marginTop: '20px' }}>
+                  <button className="btn btn-secondary" onClick={() => setDeptToDelete(null)}>
+                    Cancel
+                  </button>
+                  <button
+                    className="btn btn-danger"
+                    onClick={async () => {
+                      try {
+                        await departmentService.deleteDepartment(deptToDelete._id);
+                        setDepartments((prev) => prev.filter((x) => x._id !== deptToDelete._id));
+                        toast.success('Department deleted');
+                        setDeptToDelete(null);
+                      } catch (err) {
+                        toast.error(err.response?.data?.message || 'Failed to delete');
+                      }
+                    }}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {showUserModal && (
           <div className="modal-overlay" onClick={() => { setShowUserModal(false); resetUserForm(); }}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -1386,9 +1657,9 @@ const AdminDashboard = () => {
                         required
                       >
                         <option value="">Select Department</option>
-                        {DEPARTMENTS.map((dept) => (
-                          <option key={dept} value={dept}>
-                            {dept}
+                        {departments.map((dept) => (
+                          <option key={dept._id} value={dept._id}>
+                            {dept.name}
                           </option>
                         ))}
                       </select>

@@ -13,6 +13,7 @@ import StatsCard from '../components/ui/StatsCard';
 import StatusBadge from '../components/ui/StatusBadge';
 import EmptyState from '../components/ui/EmptyState';
 import { getApiErrorMessage, hasAllowedExtension, isValidEmail, maxSizeInBytes } from '../utils/validation';
+import { subscribeToProjectSync } from '../utils/projectSync';
 
 const StudentDashboard = () => {
   const idCardMaxSize = 5 * 1024 * 1024;
@@ -91,7 +92,7 @@ const StudentDashboard = () => {
       const [dashboardStats, allProjects, allFaculty, pendingInvites, verificationConfig] = await Promise.all([
         userService.getDashboardStats(),
         projectService.getProjects(),
-        userService.getFaculty(),
+        userService.getFaculty(user?.role === 'student' ? { department: user?.department } : {}),
         projectService.getTeamInvites(),
         userService.getVerificationConfig()
       ]);
@@ -116,6 +117,13 @@ const StudentDashboard = () => {
 
   useEffect(() => {
     fetchDashboardData();
+  }, [fetchDashboardData]);
+  useEffect(() => {
+    const unsubscribe = subscribeToProjectSync(() => {
+      fetchDashboardData();
+    });
+
+    return unsubscribe;
   }, [fetchDashboardData]);
 
   const handleAddMember = (e) => {

@@ -30,9 +30,11 @@ app.use(cors({
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/projects', require('./routes/projects'));
 app.use('/api/users', require('./routes/users'));
+app.use('/api/departments', require('./routes/departments'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/files', require('./routes/files'));
 app.use('/api/presets', require('./routes/presets'));
+app.use('/api/system', require('./routes/system'));
 
 // Health check route - with strict DB verification
 app.get('/api/health', (req, res) => {

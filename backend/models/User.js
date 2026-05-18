@@ -32,7 +32,8 @@ const userSchema = new mongoose.Schema({
     default: 'student'
   },
   department: {
-    type: String,
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Department',
     required: function() {
       return this.role === 'student' || this.role === 'faculty';
     }

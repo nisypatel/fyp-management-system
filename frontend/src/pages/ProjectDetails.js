@@ -1,5 +1,6 @@
 // Purpose: Detailed single-project view with files, feedback, and progress updates.
 import React, { useState, useEffect, useCallback } from 'react';
+import { useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-toastify';
@@ -12,6 +13,7 @@ import DocumentActions from '../components/ui/DocumentActions';
 import '../styles/project-details.css';
 import { getApiErrorMessage, hasAllowedExtension, maxSizeInBytes } from '../utils/validation';
 import { getMeaningfulDocumentName } from '../utils/fileUtils';
+import { subscribeToProjectSync, triggerProjectSync } from '../utils/projectSync';
 
 const getFriendlyInviteStatus = (status) => {
   if (status === 'pending') return 'Awaiting Response';
@@ -43,6 +45,15 @@ const SUBMISSION_TYPE_LABELS = {
 
 const getSubmissionType = (phase) => phase?.submissionType || 'file';
 
+const getNextSelectablePhaseId = (phases = []) => {
+  const nextPhase = phases.find((phase, index) => {
+    const previousPhasesIncomplete = phases.slice(0, index).some((item) => item.status !== 'approved');
+    return !previousPhasesIncomplete && ['pending', 'rejected'].includes(phase.status);
+  });
+
+  return nextPhase?._id || '';
+};
+
 const ProjectDetails = () => {
   const { id } = useParams();
   const { user } = useAuth();
@@ -64,6 +75,10 @@ const ProjectDetails = () => {
   const [showRemoveModal, setShowRemoveModal] = useState(false);
   const [removeReason, setRemoveReason] = useState('');
   const [removeBusy, setRemoveBusy] = useState(false);
+  const [projectApprovalBusy, setProjectApprovalBusy] = useState(false);
+  const [downloadingCert, setDownloadingCert] = useState(false);
+  const [downloadBtnMinWidth, setDownloadBtnMinWidth] = useState(null);
+  const downloadBtnRef = useRef(null);
 
   const handlePhaseSubmit = async (e) => {
     e.preventDefault();
@@ -163,32 +178,44 @@ const ProjectDetails = () => {
         formData.append('comments', phaseComments.trim());
       }
 
-      await projectService.submitPhase(id, selectedPhaseId, formData);
+      const updatedProject = await projectService.submitPhase(id, selectedPhaseId, formData);
       toast.success(`${selectedPhase.title} submitted successfully!`);
       setPhaseFile(null);
       setPhaseVideo(null);
       setPhaseLink('');
       setPhaseText('');
       setPhaseComments('');
+      if (updatedProject?._id) {
+        setProject(updatedProject);
+        setSelectedPhaseId(getNextSelectablePhaseId(updatedProject.phases || []));
+      }
+      triggerProjectSync(id);
       fetchProject();
     } catch (error) {
       toast.error(getApiErrorMessage(error, 'Error submitting phase'));
+    } finally {
+      setPhaseSubmitting(false);
     }
-    setPhaseSubmitting(false);
   };
 
   const handlePhaseReview = async (phaseId, status) => {
     const feedback = phaseReviewFeedback[phaseId] || '';
     setPhaseReviewBusyId(phaseId);
     try {
-      await projectService.evaluatePhase(id, phaseId, status, feedback);
+      const updatedProject = await projectService.evaluatePhase(id, phaseId, status, feedback);
       toast.success(`Phase ${status}`);
       setPhaseReviewFeedback((current) => ({ ...current, [phaseId]: '' }));
+      if (updatedProject?._id) {
+        setProject(updatedProject);
+        setSelectedPhaseId(getNextSelectablePhaseId(updatedProject.phases || []));
+      }
+      triggerProjectSync(id);
       fetchProject();
     } catch (error) {
       toast.error(getApiErrorMessage(error, 'Error reviewing phase'));
+    } finally {
+      setPhaseReviewBusyId(null);
     }
-    setPhaseReviewBusyId(null);
   };
 
   usePageTitle('Project Details | FYP Management');
@@ -209,15 +236,47 @@ const ProjectDetails = () => {
   }, [fetchProject]);
 
   useEffect(() => {
+    const unsubscribe = subscribeToProjectSync((projectId) => {
+      if (!projectId || projectId === id) {
+        fetchProject();
+      }
+    });
+
+    return unsubscribe;
+  }, [fetchProject, id]);
+
+  useEffect(() => {
     if (!project?.phases?.length) {
+      setSelectedPhaseId('');
       return;
     }
 
-    const nextActionablePhase = project.phases.find((phase) => phase.status !== 'approved') || project.phases[0];
-    if (nextActionablePhase && nextActionablePhase._id) {
-      setSelectedPhaseId(nextActionablePhase._id);
-    }
+    setSelectedPhaseId((currentSelectedPhaseId) => {
+      const currentSelectedPhase = project.phases.find((phase) => phase._id === currentSelectedPhaseId);
+      if (currentSelectedPhase && ['pending', 'rejected'].includes(currentSelectedPhase.status)) {
+        return currentSelectedPhaseId;
+      }
+
+      return getNextSelectablePhaseId(project.phases);
+    });
   }, [project]);
+
+  // Measure download button width to avoid layout shifts when text changes
+  useEffect(() => {
+    const measure = () => {
+      if (downloadBtnRef.current) {
+        const w = downloadBtnRef.current.getBoundingClientRect().width;
+        setDownloadBtnMinWidth(Math.ceil(w));
+      }
+    };
+    // measure after next paint
+    const t = setTimeout(measure, 0);
+    window.addEventListener('resize', measure);
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener('resize', measure);
+    };
+  }, [/* measure when component mounts or when layout changes */ project?.progress]);
 
   useEffect(() => {
     setPhaseFile(null);
@@ -275,12 +334,27 @@ const ProjectDetails = () => {
   };
 
   const handleProjectApproval = async (status) => {
+    setProjectApprovalBusy(true);
     try {
       await projectService.adminApprove(id, status);
+      setProject((currentProject) => {
+        if (!currentProject) {
+          return currentProject;
+        }
+
+        return {
+          ...currentProject,
+          adminStatus: status,
+          status: status === 'approved' ? 'in-progress' : 'rejected'
+        };
+      });
+      triggerProjectSync(id);
       toast.success(`Project ${status} successfully!`);
       fetchProject();
     } catch (error) {
       toast.error(getApiErrorMessage(error, 'Error updating project'));
+    } finally {
+      setProjectApprovalBusy(false);
     }
   };
 
@@ -321,17 +395,19 @@ const ProjectDetails = () => {
 
   const canAddFeedback = user.role === 'faculty' || user.role === 'admin';
 
+  const projectPhases = project?.phases || [];
+  const approvedPhaseCount = projectPhases.filter((phase) => phase.status === 'approved').length;
+  const eligibleForCertificate = project.progress === 100 && projectPhases.length > 0 && approvedPhaseCount === projectPhases.length;
+  const selectedPhase = projectPhases.find((phase) => phase._id === selectedPhaseId) || null;
   const canSubmitPhase =
     user.role === 'student' &&
     user.id === project.student._id &&
-    project.status === 'in-progress';
+    project.status === 'in-progress' &&
+    selectedPhase && ['pending', 'rejected'].includes(selectedPhase.status);
 
   const submittedAt = project.codeReview?.submittedAt
     ? new Date(project.codeReview.submittedAt).toLocaleString()
     : 'Not submitted';
-  const projectPhases = project?.phases || [];
-  const approvedPhaseCount = projectPhases.filter((phase) => phase.status === 'approved').length;
-  const selectedPhase = projectPhases.find((phase) => phase._id === selectedPhaseId) || null;
 
   return (
     <>
@@ -371,6 +447,7 @@ const ProjectDetails = () => {
             {project.supervisorStatus && <StatusBadge status={project.supervisorStatus} prefix="Supervisor" />}
           </div>
         </section>
+        {/* Certificate button moved below next to progress bar */}
 
         {canReviewProject && (
           <>
@@ -386,12 +463,14 @@ const ProjectDetails = () => {
                 <button
                   className="btn btn-success"
                   onClick={() => handleProjectApproval('approved')}
+                  disabled={projectApprovalBusy}
                 >
                   Approve
                 </button>
                 <button
                   className="btn btn-danger"
                   onClick={() => handleProjectApproval('rejected')}
+                  disabled={projectApprovalBusy}
                 >
                   Reject
                 </button>
@@ -542,10 +621,10 @@ const ProjectDetails = () => {
                   >
                     {projectPhases.map((phase, index) => {
                       const isLocked = projectPhases.slice(0, index).some((item) => item.status !== 'approved');
-                      const isAlreadyApproved = phase.status === 'approved';
+                      const isCompleted = ['approved', 'submitted'].includes(phase.status);
 
                       return (
-                        <option key={phase._id} value={phase._id} disabled={isLocked || isAlreadyApproved}>
+                        <option key={phase._id} value={phase._id} disabled={isLocked || isCompleted}>
                           {phase.title} - {getFriendlyPhaseStatus(phase.status)}
                         </option>
                       );
@@ -553,8 +632,9 @@ const ProjectDetails = () => {
                   </select>
                 </div>
 
-                <div className="project-phase-note" style={{ marginBottom: '0.25rem' }}>
-                  Required submission: <strong>{SUBMISSION_TYPE_LABELS[getSubmissionType(selectedPhase)] || 'File upload'}</strong>
+                <div className="project-phase-note-inline">
+                  Required submission:&nbsp;
+                  <strong>{SUBMISSION_TYPE_LABELS[getSubmissionType(selectedPhase)] || 'File upload'}</strong>
                 </div>
 
                 {getSubmissionType(selectedPhase) === 'file' && (
@@ -896,7 +976,51 @@ const ProjectDetails = () => {
               <div className="progress-bar">
                 <div className="progress-fill" style={{ width: `${project.progress}%` }} />
               </div>
-              <strong>{project.progress}%</strong>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <strong>{project.progress}%</strong>
+                {eligibleForCertificate && user.role === 'student' && (
+                  <button
+                    ref={downloadBtnRef}
+                    className="btn btn-primary btn-fixed-width"
+                    onClick={async () => {
+                    setDownloadingCert(true);
+                    try {
+                      const data = await projectService.downloadCertificate(id);
+                      const blob = new Blob([data], { type: 'application/pdf' });
+                      const url = window.URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = 'project-completion-certificate.pdf';
+                      document.body.appendChild(a);
+                      a.click();
+                      a.remove();
+                      window.URL.revokeObjectURL(url);
+                      toast.success('Certificate download started');
+                    } catch (error) {
+                      toast.error(getApiErrorMessage(error, 'Unable to download certificate'));
+                    } finally {
+                      setDownloadingCert(false);
+                    }
+                  }} disabled={downloadingCert} style={downloadBtnMinWidth ? { minWidth: downloadBtnMinWidth } : undefined}>
+                    {downloadingCert ? (
+                      <>
+                        <span className="spinner" aria-hidden>⏳</span>
+                        <span className="btn-label">Downloading...</span>
+                      </>
+                    ) : (
+                      <span className="btn-label">Download Completion Certificate</span>
+                    )}
+                  </button>
+                )}
+
+                {user.role === 'admin' && eligibleForCertificate && (
+                  <button className="btn btn-outline" style={{ marginLeft: 8 }} onClick={() => {
+                    const apiBase = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+                    const previewUrl = `${apiBase}/projects/${id}/certificate?inline=1`;
+                    window.open(previewUrl, '_blank');
+                  }}>Preview Certificate</button>
+                )}
+              </div>
             </div>
             <p className="project-muted mt-1">Progress is now driven by approved phases.</p>
           </section>

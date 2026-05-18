@@ -263,6 +263,9 @@
 }
 
 .project-phase-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
   font-size: 0.78rem;
   font-weight: 700;
   color: #7a4a00;
@@ -271,6 +274,20 @@
   border-radius: 999px;
   padding: 0.35rem 0.6rem;
   white-space: nowrap;
+}
+
+/* Compact inline note shown to the right of the phase select */
+.project-phase-note-inline {
+  justify-self: end;
+  align-self: center;
+  color: var(--text-secondary);
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.project-phase-note-inline strong {
+  color: #7a4a00;
+  font-weight: 800;
 }
 
 .project-phase-form {
@@ -329,6 +346,36 @@
 .project-phase-card-top p {
   font-size: 0.86rem;
   color: var(--text-secondary);
+}
+
+/* Fixed-width download button to avoid layout shifts during loading */
+.btn-fixed-width {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  transition: background-color 150ms ease, opacity 150ms ease;
+  white-space: nowrap;
+}
+
+.btn-fixed-width .spinner {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  line-height: 1;
+  transform: translateY(1px);
+  opacity: 0.95;
+}
+
+.btn-fixed-width .btn-label {
+  display: inline-block;
+}
+
+/* ensure small screens still allow responsive layout but keep button stable */
+@media (max-width: 560px) {
+  .btn-fixed-width {
+    min-width: 160px; /* reasonable default for mobile */
+  }
 }
 
 .project-phase-submission {

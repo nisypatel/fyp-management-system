@@ -26,7 +26,8 @@ export const projectService = {
   },
 
   async adminApprove(projectId, status) {
-    await apiClient.put(`/projects/${projectId}/admin-approval`, { status });
+    const response = await apiClient.put(`/projects/${projectId}/admin-approval`, { status });
+    return response.data.project;
   },
 
   async adminRemove(projectId, reason) {
@@ -62,13 +63,15 @@ export const projectService = {
   },
 
   async submitPhase(projectId, phaseId, formData) {
-    await apiClient.put(`/projects/${projectId}/phases/${phaseId}/submit`, formData, {
+    const response = await apiClient.put(`/projects/${projectId}/phases/${phaseId}/submit`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     });
+    return response.data.project;
   },
 
   async evaluatePhase(projectId, phaseId, status, feedback) {
-    await apiClient.put(`/projects/${projectId}/phases/${phaseId}/evaluate`, { status, feedback });
+    const response = await apiClient.put(`/projects/${projectId}/phases/${phaseId}/evaluate`, { status, feedback });
+    return response.data.project;
   },
 
   async uploadScreenRecording(projectId, formData) {
@@ -116,5 +119,10 @@ export const projectService = {
 
   async resetProject(projectId) {
     await apiClient.put(`/projects/${projectId}/reset`);
+  }
+,
+  async downloadCertificate(projectId) {
+    const response = await apiClient.get(`/projects/${projectId}/certificate`, { responseType: 'blob' });
+    return response.data;
   }
 };

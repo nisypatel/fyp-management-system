@@ -1,27 +1,30 @@
 // Purpose: Registration page for new student/faculty users.
-import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-toastify';
 import usePageTitle from '../hooks/usePageTitle';
 import { FaEye, FaEyeSlash } from 'react-icons/fa';
 import { getApiErrorMessage, isBasicPassword, isValidEmail, isValidPhone } from '../utils/validation';
+import { departmentService } from '../services/departmentService';
 
 const Register = () => {
   const [formData, setFormData] = useState({
     name: '', email: '', password: '', confirmPassword: '', role: 'student',
-    department: 'CSE', enrollmentNumber: '', employeeId: '', phone: ''
+    department: '', enrollmentNumber: '', employeeId: '', phone: ''
   });
+  const [allowSensitiveInput, setAllowSensitiveInput] = useState(false);
+  const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const { register } = useAuth();
-  const navigate = useNavigate();
 
   usePageTitle('Register | FYP Management');
 
   const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+    const fieldName = e.target.dataset.field || e.target.name;
+    setFormData({ ...formData, [fieldName]: e.target.value });
   };
 
   const handleSubmit = async (e) => {
@@ -81,15 +84,27 @@ const Register = () => {
       toast.success('Registration successful!');
       setFormData({
         name: '', email: '', password: '', confirmPassword: '', role: 'student',
-        department: 'CSE', enrollmentNumber: '', employeeId: '', phone: ''
+        department: departments[0]?._id || '', enrollmentNumber: '', employeeId: '', phone: ''
       });
-      navigate('/');
     } else {
       const message = result.errors?.length ? getApiErrorMessage({ response: { data: { errors: result.errors } } }, result.message) : result.message;
       toast.error(message || 'Registration failed');
     }
     setLoading(false);
   };
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const depts = await departmentService.getDepartments();
+        setDepartments(depts || []);
+        setFormData((f) => ({ ...f, department: depts && depts[0] ? depts[0]._id : '' }));
+      } catch (err) {
+        // ignore
+      }
+    };
+    load();
+  }, []);
 
   return (
     <div className="auth-wrapper">
@@ -106,14 +121,44 @@ const Register = () => {
           <div className="auth-card">
             <h1 className="auth-title">Create Account</h1>
             <p className="auth-subtitle">Register for FYP Management</p>
-            <form onSubmit={handleSubmit} autoComplete="off">
+            <form onSubmit={handleSubmit} autoComplete="off" name="register-form" data-form-type="other">
+              {/* Decoy fields to absorb browser/password-manager credential autofill */}
+              <input
+                type="text"
+                name="username"
+                autoComplete="username"
+                tabIndex={-1}
+                aria-hidden="true"
+                style={{ position: 'absolute', opacity: 0, width: 0, height: 0, pointerEvents: 'none' }}
+              />
+              <input
+                type="password"
+                name="password"
+                autoComplete="current-password"
+                tabIndex={-1}
+                aria-hidden="true"
+                style={{ position: 'absolute', opacity: 0, width: 0, height: 0, pointerEvents: 'none' }}
+              />
               <div className="form-group">
                 <label className="form-label">Full Name</label>
                 <input type="text" name="name" className="form-input" value={formData.name} onChange={handleChange} required autoComplete="off" />
               </div>
               <div className="form-group">
                 <label className="form-label">Email</label>
-                <input type="email" name="email" className="form-input" value={formData.email} onChange={handleChange} required autoComplete="off" />
+                <input
+                  type="email"
+                  name="register_email"
+                  data-field="email"
+                  className="form-input"
+                  value={formData.email}
+                  onChange={handleChange}
+                  onFocus={() => setAllowSensitiveInput(true)}
+                  required
+                  autoComplete="off"
+                  readOnly={!allowSensitiveInput}
+                  data-lpignore="true"
+                  data-1p-ignore="true"
+                />
               </div>
               <div className="form-groups-row">
                 <div className="form-group flex-1">
@@ -126,9 +171,10 @@ const Register = () => {
                 <div className="form-group flex-1">
                   <label className="form-label">Department</label>
                   <select name="department" className="form-select" value={formData.department} onChange={handleChange} required>
-                    <option value="CSE">CSE</option>
-                    <option value="CSE-AIML">CSE-AIML</option>
-                    <option value="IT">IT</option>
+                    <option value="">Select Department</option>
+                    {departments.map((d) => (
+                      <option key={d._id} value={d._id}>{d.name}</option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -152,12 +198,18 @@ const Register = () => {
                 <div className="form-group flex-1">
                   <label className="form-label">Password</label>
                   <div className="password-wrapper">
-                    <input autoComplete="off" 
+                    <input
+                      autoComplete="new-password"
                       type={showPassword ? "text" : "password"} 
-                      name="password" 
+                      name="register_password"
+                      data-field="password"
                       className="form-input" 
                       value={formData.password} 
                       onChange={handleChange} 
+                      onFocus={() => setAllowSensitiveInput(true)}
+                      readOnly={!allowSensitiveInput}
+                      data-lpignore="true"
+                      data-1p-ignore="true"
                       required 
                       minLength={8}
                     />
@@ -170,11 +222,17 @@ const Register = () => {
                   <label className="form-label">Confirm Password</label>
                   <div className="password-wrapper">
                     <input 
+                      autoComplete="new-password"
                       type={showConfirmPassword ? "text" : "password"} 
-                      name="confirmPassword" 
+                      name="register_confirm_password"
+                      data-field="confirmPassword"
                       className="form-input" 
                       value={formData.confirmPassword} 
                       onChange={handleChange} 
+                      onFocus={() => setAllowSensitiveInput(true)}
+                      readOnly={!allowSensitiveInput}
+                      data-lpignore="true"
+                      data-1p-ignore="true"
                       required 
                     />
                     <button type="button" className="password-toggle" onClick={() => setShowConfirmPassword(!showConfirmPassword)} title="Toggle Password Visibility">

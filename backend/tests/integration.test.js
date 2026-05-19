@@ -20,6 +20,11 @@ jest.mock('../models/UserType', () => ({
   findOne: jest.fn()
 }));
 
+jest.mock('../models/Department', () => ({
+  findById: jest.fn(),
+  findOne: jest.fn()
+}));
+
 jest.mock('../models/Preset', () => ({
   findOne: jest.fn(),
   findOneAndUpdate: jest.fn(),
@@ -39,6 +44,7 @@ const User = require('../models/User');
 const Project = require('../models/Project');
 const Notification = require('../models/Notification');
 const UserType = require('../models/UserType');
+const Department = require('../models/Department');
 const Preset = require('../models/Preset');
 const authController = require('../controllers/authController');
 const projectController = require('../controllers/projectController');
@@ -82,6 +88,20 @@ beforeEach(() => {
   Preset.findOne.mockReturnValue({
     sort: jest.fn().mockResolvedValue(null)
   });
+  User.findOne.mockResolvedValue(null);
+  User.findById.mockReturnValue({
+    populate: jest.fn().mockResolvedValue({
+      _id: 'user-1',
+      name: 'Test Student',
+      email: 'student@test.com',
+      role: 'student',
+      department: { name: 'CSE' },
+      enrollmentNumber: '20CS001',
+      employeeId: null
+    })
+  });
+  Department.findOne.mockResolvedValue({ _id: 'department-1' });
+  Department.findById.mockResolvedValue(null);
 });
 
 describe('Core workflow controller tests', () => {
@@ -107,6 +127,18 @@ describe('Core workflow controller tests', () => {
       }
     });
     const res = makeRes();
+
+    User.findById.mockReturnValueOnce({
+      populate: jest.fn().mockResolvedValue({
+        _id: 'user-1',
+        name: 'Test Student',
+        email: 'student@test.com',
+        role: 'student',
+        department: { name: 'CSE' },
+        enrollmentNumber: '20CS001',
+        employeeId: null
+      })
+    });
 
     await authController.register(req, res);
 

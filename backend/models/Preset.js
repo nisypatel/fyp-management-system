@@ -30,6 +30,14 @@ const presetSchema = new mongoose.Schema(
           type: Number,
           required: true,
           min: 1
+        },
+        videoRequired: {
+          type: Boolean,
+          default: false
+        },
+        maxVideoDuration: {
+          type: Number,
+          default: null
         }
       }
     ],
@@ -83,7 +91,9 @@ presetSchema.pre('save', async function(next) {
     this.phases = this.phases.map((phase, index) => ({
       title: phase.title,
       submissionType: normalizeSubmissionType(phase.submissionType),
-      order: index + 1
+      order: index + 1,
+      videoRequired: phase.videoRequired || false,
+      maxVideoDuration: phase.maxVideoDuration || null
     }));
   }
 
@@ -109,7 +119,9 @@ presetSchema.pre('findOneAndUpdate', function(next) {
     update.phases = update.phases.map((phase, index) => ({
       title: phase.title,
       submissionType: normalizeSubmissionType(phase.submissionType),
-      order: index + 1
+      order: index + 1,
+      videoRequired: phase.videoRequired || false,
+      maxVideoDuration: phase.maxVideoDuration || null
     }));
     this.setUpdate(update);
   }

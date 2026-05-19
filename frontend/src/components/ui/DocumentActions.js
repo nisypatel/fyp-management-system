@@ -2,18 +2,30 @@
 import React, { useState } from 'react';
 import { FiDownload, FiEye } from 'react-icons/fi';
 import { toast } from 'react-toastify';
-import { getDocumentDownloadUrl, getMeaningfulDocumentName, openDocumentPreview } from '../../utils/fileUtils';
+import { getDocumentDownloadUrl, getFileKind, getMeaningfulDocumentName, openDocumentPreview } from '../../utils/fileUtils';
 import PreviewModal from './PreviewModal';
 
-const DocumentActions = ({ file, loading = false, className = '' }) => {
+const ensureFileExtension = (name, kind) => {
+  const baseName = String(name || 'download').trim() || 'download';
+  if (/\.[^./\\]+$/.test(baseName)) return baseName;
+  if (kind === 'pdf') return `${baseName}.pdf`;
+  if (kind === 'image') return `${baseName}.png`;
+  if (kind === 'video') return `${baseName}.mp4`;
+  if (kind === 'office') return `${baseName}.pdf`;
+  return baseName;
+};
+
+const DocumentActions = ({ file, loading = false, className = '', disablePdfPreview = false }) => {
   const [busyAction, setBusyAction] = useState(null);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const displayName = getMeaningfulDocumentName(file);
   const downloadUrl = getDocumentDownloadUrl(file);
+  const fileKind = getFileKind(file);
+  const isPdfPhase = fileKind === 'pdf' && disablePdfPreview;
   const disabled = loading || !file || !displayName || !downloadUrl;
 
   const handleView = async () => {
-    if (disabled || busyAction) return;
+    if (disabled || busyAction || isPdfPhase) return;
 
     setBusyAction('view');
     try {
@@ -45,9 +57,9 @@ const DocumentActions = ({ file, loading = false, className = '' }) => {
           type="button"
           className="document-action-button"
           onClick={handleView}
-          disabled={disabled || busyAction === 'view'}
-          aria-label={disabled ? 'File preview unavailable' : `View ${displayName}`}
-          title={disabled ? 'File preview unavailable' : `View ${displayName}`}
+          disabled={disabled || busyAction === 'view' || isPdfPhase}
+          aria-label={isPdfPhase ? 'PDF preview unavailable' : disabled ? 'File preview unavailable' : `View ${displayName}`}
+          title={isPdfPhase ? 'PDF preview unavailable' : disabled ? 'File preview unavailable' : `View ${displayName}`}
         >
           <FiEye aria-hidden="true" />
         </button>
@@ -56,13 +68,24 @@ const DocumentActions = ({ file, loading = false, className = '' }) => {
           <a
             className="document-action-button document-action-link"
             href={downloadUrl}
-            download={displayName}
+            download={ensureFileExtension(displayName, getFileKind(file))}
             aria-label={`Download ${displayName}`}
             title={`Download ${displayName}`}
             onClick={(event) => {
               if (disabled) {
                 event.preventDefault();
+                return;
               }
+
+              setBusyAction('download');
+              const anchor = document.createElement('a');
+              anchor.href = downloadUrl;
+              anchor.download = ensureFileExtension(displayName, getFileKind(file));
+              document.body.appendChild(anchor);
+              anchor.click();
+              anchor.remove();
+              setBusyAction(null);
+              event.preventDefault();
             }}
           >
             <FiDownload aria-hidden="true" />

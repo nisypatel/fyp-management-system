@@ -1,3 +1,5 @@
+import apiClient from '../services/apiClient';
+
 const API_FILE_DOWNLOAD_PREFIX = '/api/files/download';
 
 const FILE_KIND_EXTENSIONS = {
@@ -17,6 +19,23 @@ const FILE_KIND_MIME_TYPES = {
 };
 
 const stripQueryAndHash = (value = '') => String(value).split('#')[0].split('?')[0];
+
+// API base configured at build/runtime. When undefined, leave relative paths as-is.
+const API_BASE = (typeof process !== 'undefined' && process.env && process.env.REACT_APP_API_URL)
+  ? String(process.env.REACT_APP_API_URL).replace(/\/+$|\s+$/g, '')
+  : '';
+
+const makeAbsoluteApiPath = (url) => {
+  if (!url) return url;
+  if (/^https?:\/\//i.test(url)) return url;
+  if (!API_BASE) return url;
+
+  if (url.startsWith('/api/')) {
+    return `${API_BASE}${url.slice(4)}`;
+  }
+
+  return `${API_BASE}/${String(url).replace(/^\/+/, '')}`;
+};
 
 const getBaseName = (value = '') => {
   const cleanValue = stripQueryAndHash(value);
@@ -180,6 +199,14 @@ export const getDocumentDownloadUrl = (file) => {
       return file.downloadUrl;
     }
 
+    const storedName = getDocumentStoredName(file);
+
+    // Prefer the backend download proxy for Cloudinary and uploaded files so the server
+    // can set a correct filename and extension (for example, `.pdf`).
+    if (storedName) {
+      return makeAbsoluteApiPath(`${API_FILE_DOWNLOAD_PREFIX}/${encodeURIComponent(storedName)}`);
+    }
+
     if (file.secure_url) {
       return buildCloudinaryAttachmentUrl(file.secure_url, getDocumentDisplayName(file));
     }
@@ -205,7 +232,7 @@ export const getDocumentDownloadUrl = (file) => {
     return '';
   }
 
-  return `${API_FILE_DOWNLOAD_PREFIX}/${encodeURIComponent(storedName)}`;
+  return makeAbsoluteApiPath(`${API_FILE_DOWNLOAD_PREFIX}/${encodeURIComponent(storedName)}`);
 };
 
 /**
@@ -217,6 +244,15 @@ export const getDocumentPreviewUrl = (file) => {
   if (!file) return '';
 
   if (typeof file === 'object') {
+    // If we can derive a stored name (public_id/filename), prefer the internal download proxy
+    // This ensures same-origin fetches (with credentials) and avoids Cloudinary CORS issues for PDFs
+    const storedName = getDocumentStoredName(file);
+    if (storedName) {
+      const downloadUrl = `${API_FILE_DOWNLOAD_PREFIX}/${encodeURIComponent(storedName)}`;
+      const inlineUrl = downloadUrl.includes('?') ? `${downloadUrl}&inline=1` : `${downloadUrl}?inline=1`;
+      return makeAbsoluteApiPath(inlineUrl);
+    }
+
     // Prefer Cloudinary secure URL with optimizations
     if (file.secure_url && isCloudinaryUrl(file.secure_url)) {
       const fileKind = getFileKind(file);
@@ -249,13 +285,19 @@ export const getDocumentPreviewUrl = (file) => {
   }
 
   // Fallback to download URL
-  return getDocumentDownloadUrl(file);
+  // Request inline preview when falling back to the download endpoint
+  const downloadUrl = getDocumentDownloadUrl(file);
+  if (!downloadUrl) return '';
+  // Append inline flag if not present, and make absolute when targeting API path
+  const inlineUrl = downloadUrl.includes('?') ? `${downloadUrl}&inline=1` : `${downloadUrl}?inline=1`;
+  return makeAbsoluteApiPath(inlineUrl);
 };
 
 export const getDocumentPreviewMimeType = (file) => {
   const kind = getFileKind(file);
   return FILE_KIND_MIME_TYPES[kind] || 'application/octet-stream';
 };
+
 
 const escapeHtml = (value = '') =>
   String(value)
@@ -366,7 +408,7 @@ const renderPreviewShell = (previewWindow, displayName) => {
               <p class="title">${escapeHtml(displayName || 'Document Preview')}</p>
               <p class="subtitle">Loading preview…</p>
             </div>
-            <a class="download-link" href="#" aria-disabled="true">Download</a>
+            <a class="download-link" href="#" aria-disabled="true" onclick="(function(){ try{ if(window.opener && window.opener.__downloadDocumentFromParent){ window.opener.__downloadDocumentFromParent(encodeURIComponent(window.location.href), encodeURIComponent('${escapeHtml(displayName || 'Document')}')); return false; } }catch(e){} return true; })()">Download</a>
           </div>
           <div class="content">
             <div class="loading">Loading preview…</div>
@@ -382,6 +424,10 @@ const renderPreviewFallback = (previewWindow, fileMeta, message) => {
   const displayName = escapeHtml(fileMeta.displayName || 'Document');
   const downloadUrl = fileMeta.downloadUrl || '#';
 
+  // Use opener-based download helper when available to ensure authenticated requests
+  const encodedUrl = encodeURIComponent(downloadUrl);
+  const encodedName = encodeURIComponent(displayName);
+
   previewWindow.document.body.innerHTML = `
     <div class="shell">
       <div class="header">
@@ -396,7 +442,7 @@ const renderPreviewFallback = (previewWindow, fileMeta, message) => {
           <h2>Preview unavailable</h2>
           <p>${escapeHtml(message)}</p>
           <div class="fallback-actions">
-            <a href="${downloadUrl}" download="${displayName}">Download file</a>
+            <a href="${downloadUrl}" download="${displayName}" onclick="(function(){ try{ if(window.opener && window.opener.__downloadDocumentFromParent){ window.opener.__downloadDocumentFromParent('${encodedUrl}','${encodedName}'); return false;} }catch(e){} return true; })()">Download file</a>
             <button type="button" onclick="window.close()">Close tab</button>
           </div>
         </div>
@@ -415,6 +461,8 @@ const renderPreviewError = (previewWindow, fileMeta) => {
 
 const renderTextPreview = async (previewWindow, fileMeta, blob) => {
   const text = await blob.text();
+  const encodedDownload = encodeURIComponent(fileMeta.downloadUrl || '');
+  const encodedName = encodeURIComponent(escapeHtml(fileMeta.displayName || 'Document'));
   previewWindow.document.body.innerHTML = `
     <div class="shell">
       <div class="header">
@@ -422,7 +470,7 @@ const renderTextPreview = async (previewWindow, fileMeta, blob) => {
           <p class="title">${escapeHtml(fileMeta.displayName)}</p>
           <p class="subtitle">Text preview</p>
         </div>
-        <a class="download-link" href="${fileMeta.downloadUrl}" download="${escapeHtml(fileMeta.displayName)}">Download</a>
+        <a class="download-link" href="${fileMeta.downloadUrl}" download="${escapeHtml(fileMeta.displayName)}" onclick="(function(){ try{ if(window.opener && window.opener.__downloadDocumentFromParent){ window.opener.__downloadDocumentFromParent('${encodedDownload}','${encodedName}'); return false; } }catch(e){} return true; })()">Download</a>
       </div>
       <div class="content">
         <pre class="preview-text">${escapeHtml(text)}</pre>
@@ -457,13 +505,53 @@ const renderMediaPreview = (previewWindow, fileMeta, blobUrl, kind) => {
           <p class="title">${escapeHtml(fileMeta.displayName)}</p>
           <p class="subtitle">${kind === 'office' ? 'Office document preview' : `${kind} preview`}</p>
         </div>
-        <a class="download-link" href="${fileMeta.downloadUrl}" download="${escapeHtml(fileMeta.displayName)}">Download</a>
+        <a class="download-link" href="${fileMeta.downloadUrl}" download="${escapeHtml(fileMeta.displayName)}" onclick="(function(){ try{ if(window.opener && window.opener.__downloadDocumentFromParent){ window.opener.__downloadDocumentFromParent('${encodeURIComponent(fileMeta.downloadUrl || '')}','${encodeURIComponent(escapeHtml(fileMeta.displayName || 'Document'))}'); return false; } }catch(e){} return true; })()">Download</a>
       </div>
       <div class="content">
         ${mediaElement}
       </div>
     </div>
   `;
+};
+
+/**
+ * Programmatic authenticated download helper.
+ * Attempts to fetch the file using `apiClient` (so cookies/credentials are included),
+ * then triggers a browser download with the provided filename.
+ */
+export const downloadDocumentByUrl = async (downloadUrl, displayName) => {
+  if (!downloadUrl) return false;
+  try {
+    let blob;
+    const isApiPath = String(downloadUrl || '').startsWith('/api/') || (API_BASE && String(downloadUrl || '').startsWith(API_BASE));
+
+    if (isApiPath) {
+      // Normalize path relative to apiClient baseURL
+      let apiPath = String(downloadUrl || '');
+      if (API_BASE && apiPath.startsWith(API_BASE)) apiPath = apiPath.slice(API_BASE.length);
+      if (apiPath.startsWith('/api')) apiPath = apiPath.slice(4);
+      if (!apiPath.startsWith('/')) apiPath = `/${apiPath}`;
+      const resp = await apiClient.get(apiPath, { responseType: 'blob' });
+      blob = resp.data;
+    } else {
+      const resp = await fetch(downloadUrl, { credentials: 'include' });
+      if (!resp.ok) throw new Error('Unable to download');
+      blob = await resp.blob();
+    }
+
+    const blobUrl = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = displayName || getBaseName(downloadUrl) || 'download';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => window.URL.revokeObjectURL(blobUrl), 5000);
+    return true;
+  } catch (err) {
+    console.error('downloadDocumentByUrl error', err);
+    return false;
+  }
 };
 
 const resolveDocumentSource = (file) => {
@@ -506,16 +594,50 @@ export const openDocumentPreview = async (file) => {
     return { status: 'blocked' };
   }
 
+  // Expose a parent-side download helper so the preview window can request an
+  // authenticated download if a normal anchor download fails or is blocked.
+  window.__downloadDocumentFromParent = async (encodedUrl, encodedName) => {
+    try {
+      const url = decodeURIComponent(String(encodedUrl || ''));
+      const name = decodeURIComponent(String(encodedName || ''));
+      return await downloadDocumentByUrl(url, name);
+    } catch (err) {
+      console.error('__downloadDocumentFromParent error', err);
+      return false;
+    }
+  };
+
+  // Remove the helper when the preview window closes
+  previewWindow.addEventListener('beforeunload', () => {
+    try { delete window.__downloadDocumentFromParent; } catch (e) {}
+  }, { once: true });
+
   renderPreviewShell(previewWindow, fileMeta.displayName);
 
   try {
-    const response = await fetch(fileMeta.previewUrl, { credentials: 'same-origin' });
+    let blob;
+    const isApiPath = String(fileMeta.previewUrl || '').startsWith('/api/');
+    const isAbsoluteApiBase = API_BASE && String(fileMeta.previewUrl || '').startsWith(API_BASE);
 
-    if (!response.ok) {
-      throw new Error('Unable to load file');
+    if (isApiPath || isAbsoluteApiBase) {
+      // Use axios client so cookies and interceptors are applied (auth)
+      let apiPath = String(fileMeta.previewUrl || '');
+      if (API_BASE && apiPath.startsWith(API_BASE)) apiPath = apiPath.slice(API_BASE.length);
+      if (apiPath.startsWith('/api')) apiPath = apiPath.slice(4);
+      if (!apiPath.startsWith('/')) apiPath = `/${apiPath}`;
+
+      const axiosResp = await apiClient.get(apiPath, { responseType: 'blob' });
+      blob = axiosResp.data;
+    } else {
+      const response = await fetch(fileMeta.previewUrl, { credentials: 'include' });
+
+      if (!response.ok) {
+        throw new Error('Unable to load file');
+      }
+
+      blob = await response.blob();
     }
 
-    const blob = await response.blob();
     const kind = fileMeta.kind;
 
     if (kind === 'text') {

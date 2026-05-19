@@ -14,6 +14,7 @@ const { appendAuditEntry, buildAuditEntry, MAX_AUDIT_ENTRIES } = require('../uti
 const { executeInTransaction, withSession } = require('../utils/transaction');
 const { uploadFileToCloudinary, buildDynamicCloudinaryFolder, buildCloudinaryPreviewUrl } = require('../utils/cloudinary');
 const { deleteFromCloudinary } = require('../utils/cloudinary');
+const { formatDate } = require('../utils/dateFormat');
 
 const isStudentInActiveProject = async (studentId, excludeProjectId = null, session = null) => {
   const query = {
@@ -272,7 +273,7 @@ exports.generateCertificate = async (req, res) => {
       if (academicYear) detailsParts.push(`Academic Year: ${academicYear}`);
       if (detailsParts.length) addCentered(detailsParts.join('    •    '), { font: 'Times-Roman', size: 10, gap: 1.2 });
 
-      addCentered(`Completion Date: ${new Date().toLocaleDateString()}`, { font: 'Times-Roman', size: 10, gap: 1.2 });
+      addCentered(`Completion Date: ${formatDate(new Date())}`, { font: 'Times-Roman', size: 10, gap: 1.2 });
 
       addCentered('This certificate is awarded in recognition of the successful completion of project requirements as approved by the faculty.', { font: 'Times-Roman', size: 11, gap: 1.2 });
 
@@ -401,6 +402,8 @@ const buildProjectPhases = (phaseDefinitions) =>
   phaseDefinitions.map((phase) => ({
     title: phase.title,
     submissionType: normalizeSubmissionType(phase.submissionType),
+    videoRequired: phase.videoRequired || false,
+    maxVideoDuration: phase.maxVideoDuration || null,
     status: 'pending'
   }));
 
@@ -489,9 +492,10 @@ exports.updatePhaseTemplate = async (req, res) => {
       });
     }
 
-    preset.phases = normalizedPhases.map((phase) => ({
+    preset.phases = normalizedPhases.map((phase, index) => ({
       title: phase.title,
-      submissionType: phase.submissionType
+      submissionType: phase.submissionType,
+      order: index + 1
     }));
     preset.updatedBy = req.user.id;
     preset.changeHistory.push({
@@ -792,6 +796,10 @@ exports.getProjects = async (req, res) => {
       Project.countDocuments(query)
     ]);
 
+    // Get deadline status
+    const { getDeadlineStatus } = require('../controllers/systemController');
+    const deadlineStatus = await getDeadlineStatus();
+
     res.status(200).json({
       success: true,
       count: projects.length,
@@ -799,7 +807,8 @@ exports.getProjects = async (req, res) => {
       page: hasPagination ? page : 1,
       limit: hasPagination ? limit : total,
       totalPages: hasPagination ? Math.ceil(total / limit) : 1,
-      projects
+      projects,
+      submissionDeadline: deadlineStatus
     });
   } catch (error) {
     res.status(400).json({
@@ -857,9 +866,14 @@ exports.getProject = async (req, res) => {
 
     const updatedProject = await getPopulatedProjectById(project._id);
 
+    // Get deadline status
+    const { getDeadlineStatus } = require('../controllers/systemController');
+    const deadlineStatus = await getDeadlineStatus();
+
     res.status(200).json({
       success: true,
-      project: updatedProject || project
+      project: updatedProject || project,
+      submissionDeadline: deadlineStatus
     });
   } catch (error) {
     res.status(400).json({
@@ -1079,7 +1093,7 @@ exports.adminApproval = async (req, res) => {
       action: 'admin_approval',
       changes: `Admin marked project as ${status}`
     });
-    await project.save();
+    await project.save({ validateBeforeSave: false });
 
     // Notify student
     await createNotification(
@@ -1128,7 +1142,7 @@ exports.adminRemoveProject = async (req, res) => {
     }
 
     if (project.removed && project.removed.at) {
-      return res.status(400).json({ success: false, message: 'Project has already been removed' });
+      return res.status(200).json({ success: true, project });
     }
 
     project.removed = {
@@ -1147,38 +1161,39 @@ exports.adminRemoveProject = async (req, res) => {
       changes: `Removed project. Reason: ${reason || 'No reason provided'}`
     });
 
-    await project.save();
+    await project.save({ validateBeforeSave: false });
 
-    // Notify student
-    await createNotification(
-      project.student,
-      req.user.id,
-      'project_removed',
-      'Project Removed',
-      `Your project "${project.title}" was removed by admin${reason ? `: ${reason}` : ''}`,
-      project._id
-    );
-
-    // Notify supervisor if exists
-    if (project.supervisor) {
-      await createNotification(
-        project.supervisor,
+    // Notify people best-effort; removal should still succeed even if notifications fail.
+    Promise.allSettled([
+      createNotification(
+        project.student,
         req.user.id,
         'project_removed',
         'Project Removed',
-        `Project "${project.title}" was removed by admin${reason ? `: ${reason}` : ''}`,
+        `Your project "${project.title}" was removed by admin${reason ? `: ${reason}` : ''}`,
         project._id
-      );
-    }
-
-    const updatedProject = await getPopulatedProjectById(project._id);
+      ),
+      project.supervisor
+        ? createNotification(
+            project.supervisor,
+            req.user.id,
+            'project_removed',
+            'Project Removed',
+            `Project "${project.title}" was removed by admin${reason ? `: ${reason}` : ''}`,
+            project._id
+          )
+        : Promise.resolve()
+    ]).catch((error) => {
+      logger.warn('Project removal notification failed', { message: error.message, projectId: project._id });
+    });
 
     res.status(200).json({
       success: true,
-      project: updatedProject || project
+      project
     });
   } catch (error) {
-    res.status(400).json({ success: false, message: 'An error occurred. Please try again.' });
+    logger.error('Error in adminRemoveProject', { message: error.message, stack: error.stack, projectId: req.params.id });
+    res.status(400).json({ success: false, message: error.message || 'An error occurred. Please try again.' });
   }
 };
 
@@ -1193,7 +1208,7 @@ exports.adminRestoreProject = async (req, res) => {
     }
 
     if (!project.removed || !project.removed.at) {
-      return res.status(400).json({ success: false, message: 'Project is not removed' });
+      return res.status(200).json({ success: true, project });
     }
 
     project.removed = null;
@@ -1204,32 +1219,36 @@ exports.adminRestoreProject = async (req, res) => {
       changes: 'Project restored by admin'
     });
 
-    await project.save();
+    await project.save({ validateBeforeSave: false });
 
-    // Notify student
-    await createNotification(
-      project.student,
-      req.user.id,
-      'project_restored',
-      'Project Restored',
-      `Your project "${project.title}" has been restored by admin`,
-      project._id
-    );
-
-    if (project.supervisor) {
-      await createNotification(
-        project.supervisor,
+    // Notify people best-effort; restoration should still succeed if notifications fail.
+    Promise.allSettled([
+      createNotification(
+        project.student,
         req.user.id,
         'project_restored',
         'Project Restored',
-        `Project "${project.title}" has been restored by admin`,
+        `Your project "${project.title}" has been restored by admin`,
         project._id
-      );
-    }
+      ),
+      project.supervisor
+        ? createNotification(
+            project.supervisor,
+            req.user.id,
+            'project_restored',
+            'Project Restored',
+            `Project "${project.title}" has been restored by admin`,
+            project._id
+          )
+        : Promise.resolve()
+    ]).catch((error) => {
+      logger.warn('Project restore notification failed', { message: error.message, projectId: project._id });
+    });
 
     res.status(200).json({ success: true, project });
   } catch (error) {
-    res.status(400).json({ success: false, message: 'An error occurred. Please try again.' });
+    logger.error('Error in adminRestoreProject', { message: error.message, stack: error.stack, projectId: req.params.id });
+    res.status(400).json({ success: false, message: error.message || 'An error occurred. Please try again.' });
   }
 };
 
@@ -1244,14 +1263,19 @@ exports.adminDeleteProject = async (req, res) => {
     }
 
     // Attempt to delete associated Cloudinary assets (best-effort)
-    const candidatePublicIds = [];
-    if (project.proposalFile && project.proposalFile.public_id) candidatePublicIds.push(project.proposalFile.public_id);
-    if (project.codeReview && project.codeReview.screenRecording && project.codeReview.screenRecording.public_id) candidatePublicIds.push(project.codeReview.screenRecording.public_id);
+    const candidateAssets = [];
+    if (project.proposalFile && project.proposalFile.public_id) candidateAssets.push({ publicId: project.proposalFile.public_id, resourceType: project.proposalFile.resource_type });
+    if (project.codeReview && project.codeReview.screenRecording && project.codeReview.screenRecording.public_id) {
+      candidateAssets.push({
+        publicId: project.codeReview.screenRecording.public_id,
+        resourceType: project.codeReview.screenRecording.resource_type
+      });
+    }
 
     // Documents
     if (Array.isArray(project.documents)) {
       for (const doc of project.documents) {
-        if (doc && doc.public_id) candidatePublicIds.push(doc.public_id);
+        if (doc && doc.public_id) candidateAssets.push({ publicId: doc.public_id, resourceType: doc.resource_type });
       }
     }
 
@@ -1259,51 +1283,64 @@ exports.adminDeleteProject = async (req, res) => {
     if (Array.isArray(project.phases)) {
       for (const phase of project.phases) {
         const sub = phase.submission || {};
-        if (sub.filePublicId) candidatePublicIds.push(sub.filePublicId);
-        if (sub.videoPublicId) candidatePublicIds.push(sub.videoPublicId);
+        if (sub.filePublicId) candidateAssets.push({ publicId: sub.filePublicId, resourceType: sub.fileResourceType || sub.fileResource_type });
+        if (sub.videoPublicId) candidateAssets.push({ publicId: sub.videoPublicId, resourceType: sub.videoResourceType || sub.videoResource_type });
         // older keys
-        if (sub.filePublicId === undefined && sub.filePublic_id) candidatePublicIds.push(sub.filePublic_id);
-        if (sub.videoPublicId === undefined && sub.videoPublic_id) candidatePublicIds.push(sub.videoPublic_id);
+        if (sub.filePublicId === undefined && sub.filePublic_id) candidateAssets.push({ publicId: sub.filePublic_id, resourceType: sub.fileResourceType || sub.fileResource_type });
+        if (sub.videoPublicId === undefined && sub.videoPublic_id) candidateAssets.push({ publicId: sub.videoPublic_id, resourceType: sub.videoResourceType || sub.videoResource_type });
       }
     }
 
     // Deduplicate and remove falsy
-    const uniquePublicIds = Array.from(new Set(candidatePublicIds.filter(Boolean)));
-    for (const pid of uniquePublicIds) {
+    const uniqueAssets = [];
+    const seenAssets = new Set();
+    for (const asset of candidateAssets) {
+      const pid = asset?.publicId;
+      if (!pid || seenAssets.has(pid)) continue;
+      seenAssets.add(pid);
+      uniqueAssets.push(asset);
+    }
+
+    for (const asset of uniqueAssets) {
       try {
-        await deleteFromCloudinary(pid, { resource_type: 'auto' });
-        logger.info('Deleted cloudinary asset', { public_id: pid });
+        const resourceType = asset.resourceType || 'raw';
+        await deleteFromCloudinary(asset.publicId, { resource_type: resourceType });
+        logger.info('Deleted cloudinary asset', { public_id: asset.publicId, resource_type: resourceType });
       } catch (delErr) {
-        logger.error('Failed to delete cloudinary asset', { public_id: pid, message: delErr.message });
+        logger.error('Failed to delete cloudinary asset', { public_id: asset.publicId, message: delErr.message });
       }
     }
 
-    // Notify student and supervisor before deletion
-    await createNotification(
-      project.student,
-      req.user.id,
-      'project_deleted',
-      'Project Deleted',
-      `Your project "${project.title}" has been permanently deleted by admin`,
-      project._id
-    );
-
-    if (project.supervisor) {
-      await createNotification(
-        project.supervisor,
+    // Notify people best-effort; deletion should still succeed if notifications fail.
+    Promise.allSettled([
+      createNotification(
+        project.student,
         req.user.id,
         'project_deleted',
         'Project Deleted',
-        `Project "${project.title}" has been permanently deleted by admin`,
+        `Your project "${project.title}" has been permanently deleted by admin`,
         project._id
-      );
-    }
+      ),
+      project.supervisor
+        ? createNotification(
+            project.supervisor,
+            req.user.id,
+            'project_deleted',
+            'Project Deleted',
+            `Project "${project.title}" has been permanently deleted by admin`,
+            project._id
+          )
+        : Promise.resolve()
+    ]).catch((error) => {
+      logger.warn('Project delete notification failed', { message: error.message, projectId: project._id });
+    });
 
     await Project.deleteOne({ _id: project._id });
 
     res.status(200).json({ success: true, message: 'Project permanently deleted' });
   } catch (error) {
-    res.status(400).json({ success: false, message: 'An error occurred. Please try again.' });
+    logger.error('Error in adminDeleteProject', { message: error.message, stack: error.stack, projectId: req.params.id });
+    res.status(400).json({ success: false, message: error.message || 'An error occurred. Please try again.' });
   }
 };
 
@@ -1748,6 +1785,18 @@ exports.getPendingProjects = async (req, res) => {
 // @access  Private (Student)
 exports.submitPhase = async (req, res) => {
   try {
+    // Check submission deadline
+    const deadlineSetting = await SystemSetting.findOne({ key: 'submission_deadline' }).lean();
+    if (deadlineSetting && deadlineSetting.value) {
+      const deadline = new Date(deadlineSetting.value);
+      if (new Date() > deadline) {
+        return res.status(403).json({ 
+          success: false, 
+          message: 'Project submissions are closed. The submission deadline has passed.'
+        });
+      }
+    }
+
     const { link, comments, text } = req.body;
     const submittedLink = typeof link === 'string' ? link.trim() : '';
     const submittedComments = typeof comments === 'string' ? comments.trim() : '';
@@ -1821,6 +1870,14 @@ exports.submitPhase = async (req, res) => {
       if (submissionType === 'file') {
         if (!uploadedDocument) {
           return res.status(400).json({ success: false, message: 'Please upload a phase file' });
+        }
+
+        // Check if video is required for this phase
+        if (phase.videoRequired && !uploadedVideo) {
+          return res.status(400).json({
+            success: false,
+            message: `Video upload is required for the ${phase.title} phase`
+          });
         }
 
         if (isZipFile(uploadedDocument) && !uploadedVideo) {

@@ -521,6 +521,22 @@ th.action-cell {
   min-width: 220px;
 }
 
+/* Tighter column sizes for status/progress cells to improve table layout */
+th.status-cell,
+td.status-cell,
+th.admin-status-cell,
+td.admin-status-cell {
+  width: 120px;
+  min-width: 100px;
+  text-align: left;
+}
+
+/* Allow student/title to flex and take available space */
+th.student-cell { width: 220px; min-width: 160px; }
+th.title-cell { width: auto; min-width: 220px; }
+th.supervisor-cell { width: 180px; min-width: 140px; }
+th.category-cell { width: 140px; min-width: 120px; }
+
 .action-group {
   display: inline-flex;
   align-items: center;

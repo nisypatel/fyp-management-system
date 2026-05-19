@@ -23,12 +23,15 @@ const FacultyDashboard = () => {
   const [statusFilter, setStatusFilter] = useState('All');
   const [loading, setLoading] = useState(false);
 
+  // Only projects accepted by the supervisor should appear as "Assigned Projects".
+  const assignedProjects = projects.filter(project => project.supervisorStatus === 'accepted');
+
   // Add filter logic for assigned projects
-  const filteredProjects = projects.filter(project => {
-  // Hide removed projects for faculty
-  if (project.removed && project.removed.at) return false;
-  if (statusFilter === 'All') return true;
-    
+  const filteredProjects = assignedProjects.filter(project => {
+    // Hide removed projects for faculty
+    if (project.removed && project.removed.at) return false;
+    if (statusFilter === 'All') return true;
+
     const filterLower = statusFilter.toLowerCase();
     return project.status.toLowerCase() === filterLower;
   });
@@ -99,7 +102,7 @@ const FacultyDashboard = () => {
                 className={`btn ${activeTab === 'assigned' ? 'btn-primary' : 'btn-outline'}`}
                 onClick={() => setActiveTab('assigned')}
               >
-                Assigned Projects ({projects.length})
+                Assigned Projects ({assignedProjects.length})
               </button>
               <button
                 className={`btn ${activeTab === 'requests' ? 'btn-primary' : 'btn-outline'}`}

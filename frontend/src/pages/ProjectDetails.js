@@ -14,6 +14,7 @@ import '../styles/project-details.css';
 import { getApiErrorMessage, hasAllowedExtension, maxSizeInBytes } from '../utils/validation';
 import { getMeaningfulDocumentName } from '../utils/fileUtils';
 import { subscribeToProjectSync, triggerProjectSync } from '../utils/projectSync';
+import { formatDate, formatDateTime } from '../utils/dateFormat';
 
 const getFriendlyInviteStatus = (status) => {
   if (status === 'pending') return 'Awaiting Response';
@@ -61,8 +62,6 @@ const ProjectDetails = () => {
   const [project, setProject] = useState(null);
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState('');
-  const [screenRecordingFile, setScreenRecordingFile] = useState(null);
-  const [screenRecordingFeedback, setScreenRecordingFeedback] = useState('');
   const [selectedPhaseId, setSelectedPhaseId] = useState('');
   const [phaseFile, setPhaseFile] = useState(null);
   const [phaseVideo, setPhaseVideo] = useState(null);
@@ -79,6 +78,21 @@ const ProjectDetails = () => {
   const [downloadingCert, setDownloadingCert] = useState(false);
   const [downloadBtnMinWidth, setDownloadBtnMinWidth] = useState(null);
   const downloadBtnRef = useRef(null);
+  const [submissionDeadline, setSubmissionDeadline] = useState(null);
+  const [isDeadlineExpired, setIsDeadlineExpired] = useState(false);
+
+  const getVideoDuration = async (file) => {
+    return new Promise((resolve) => {
+      const video = document.createElement('video');
+      video.onloadedmetadata = () => {
+        resolve(video.duration);
+      };
+      video.onerror = () => {
+        resolve(null);
+      };
+      video.src = URL.createObjectURL(file);
+    });
+  };
 
   const handlePhaseSubmit = async (e) => {
     e.preventDefault();
@@ -89,8 +103,28 @@ const ProjectDetails = () => {
     const submissionLabel = SUBMISSION_TYPE_LABELS[submissionType] || 'File upload';
 
     if (!selectedPhase) {
-      toast.error('Please select a valid phase');
+      toast.error('Please select a phase to submit');
       return;
+    }
+
+    // Check if video is required for this phase
+    if (selectedPhase.videoRequired && !phaseVideo) {
+      toast.error(`${selectedPhase.title} requires a video upload`);
+      return;
+    }
+
+    // Validate video duration if provided and limit exists
+    if (phaseVideo && selectedPhase.maxVideoDuration) {
+      try {
+        const videoDuration = await getVideoDuration(phaseVideo);
+        if (videoDuration && videoDuration > selectedPhase.maxVideoDuration * 60) {
+          const maxMins = selectedPhase.maxVideoDuration;
+          toast.error(`Video is longer than the allowed limit of ${maxMins} minute${maxMins > 1 ? 's' : ''}`);
+          return;
+        }
+      } catch (error) {
+        console.error('Error validating video duration:', error);
+      }
     }
 
     if (submissionType === 'file') {
@@ -101,12 +135,12 @@ const ProjectDetails = () => {
 
       const allowedDocumentExt = ['.pdf', '.doc', '.docx', '.ppt', '.pptx', '.zip', '.rar', '.png', '.jpg', '.jpeg'];
       if (!hasAllowedExtension(phaseFile.name, allowedDocumentExt)) {
-        toast.error('Unsupported file type for phase submission');
+        toast.error('File type is not supported');
         return;
       }
 
       if (phaseFile.size > maxSizeInBytes.video) {
-        toast.error('Phase file exceeds allowed size limit');
+        toast.error('File is too large');
         return;
       }
 
@@ -116,17 +150,17 @@ const ProjectDetails = () => {
       }
 
       if (phaseVideo && phaseVideo.size > maxSizeInBytes.video) {
-        toast.error('Supporting video exceeds allowed size limit');
+        toast.error('Video file is too large');
         return;
       }
 
       if (phaseLink.trim()) {
-        toast.error('This phase does not accept a URL submission');
+        toast.error('Please remove the URL, this phase accepts file uploads only');
         return;
       }
 
       if (phaseText.trim()) {
-        toast.error('This phase does not accept a text submission');
+        toast.error('Please remove the text, this phase accepts file uploads only');
         return;
       }
     } else if (submissionType === 'url') {
@@ -149,7 +183,7 @@ const ProjectDetails = () => {
       }
 
       if (phaseText.trim().length > 5000) {
-        toast.error('Text submission exceeds allowed length');
+        toast.error('Text is too long (max 5000 characters)');
         return;
       }
     }
@@ -179,7 +213,7 @@ const ProjectDetails = () => {
       }
 
       const updatedProject = await projectService.submitPhase(id, selectedPhaseId, formData);
-      toast.success(`${selectedPhase.title} submitted successfully!`);
+      toast.success(`Phase submitted successfully!`);
       setPhaseFile(null);
       setPhaseVideo(null);
       setPhaseLink('');
@@ -192,7 +226,7 @@ const ProjectDetails = () => {
       triggerProjectSync(id);
       fetchProject();
     } catch (error) {
-      toast.error(getApiErrorMessage(error, 'Error submitting phase'));
+      toast.error(getApiErrorMessage(error, 'Failed to upload phase, please try again'));
     } finally {
       setPhaseSubmitting(false);
     }
@@ -212,7 +246,7 @@ const ProjectDetails = () => {
       triggerProjectSync(id);
       fetchProject();
     } catch (error) {
-      toast.error(getApiErrorMessage(error, 'Error reviewing phase'));
+      toast.error(getApiErrorMessage(error, 'Failed to update phase, please try again'));
     } finally {
       setPhaseReviewBusyId(null);
     }
@@ -223,9 +257,13 @@ const ProjectDetails = () => {
   const fetchProject = useCallback(async () => {
     try {
       const projectData = await projectService.getProjectById(id);
-      setProject(projectData);
+      setProject(projectData.project);
+      if (projectData.submissionDeadline) {
+        setSubmissionDeadline(projectData.submissionDeadline.deadline);
+        setIsDeadlineExpired(projectData.submissionDeadline.isExpired || false);
+      }
     } catch (error) {
-      toast.error(getApiErrorMessage(error, 'Error loading project details'));
+      toast.error(getApiErrorMessage(error, 'Failed to load project'));
       navigate('/');
     }
     setLoading(false);
@@ -294,42 +332,7 @@ const ProjectDetails = () => {
       setFeedback('');
       fetchProject();
     } catch (error) {
-      toast.error('Error adding feedback');
-    }
-  };
-
-  const handleScreenRecordingUpload = async (e) => {
-    e.preventDefault();
-    if (!screenRecordingFile) {
-      toast.error('Please select a file');
-      return;
-    }
-
-    if (screenRecordingFile.size > maxSizeInBytes.video) {
-      toast.error('Screen recording exceeds allowed size limit');
-      return;
-    }
-
-    try {
-      const formData = new FormData();
-      formData.append('screenRecording', screenRecordingFile);
-      await projectService.uploadScreenRecording(id, formData);
-      toast.success('Screen recording uploaded successfully!');
-      setScreenRecordingFile(null);
-      fetchProject();
-    } catch (error) {
-      toast.error(getApiErrorMessage(error, 'Error uploading screen recording'));
-    }
-  };
-
-  const handleScreenRecordingReview = async (status) => {
-    try {
-      await projectService.reviewScreenRecording(id, status, screenRecordingFeedback);
-      toast.success(`Screen recording ${status}`);
-      setScreenRecordingFeedback('');
-      fetchProject();
-    } catch (error) {
-      toast.error(getApiErrorMessage(error, 'Error reviewing screen recording'));
+      toast.error('Failed to add feedback');
     }
   };
 
@@ -352,7 +355,7 @@ const ProjectDetails = () => {
       toast.success(`Project ${status} successfully!`);
       fetchProject();
     } catch (error) {
-      toast.error(getApiErrorMessage(error, 'Error updating project'));
+      toast.error(getApiErrorMessage(error, 'Failed to update project'));
     } finally {
       setProjectApprovalBusy(false);
     }
@@ -366,7 +369,7 @@ const ProjectDetails = () => {
       await projectService.adminRemove(id, removeReason || '');
       toast.success('Project removed successfully');
       setShowRemoveModal(false);
-      navigate('/projects');
+      navigate('/');
     } catch (error) {
       toast.error(getApiErrorMessage(error, 'Error removing project'));
     } finally {
@@ -382,16 +385,7 @@ const ProjectDetails = () => {
     return <div>Project not found</div>;
   }
 
-  const canReviewScreenRecording =
-    (user.role === 'faculty' || user.role === 'admin') &&
-    project.codeReview?.status === 'submitted';
-
   const canReviewProject = user.role === 'admin';
-
-  const canUploadScreenRecording =
-    user.role === 'student' &&
-    user.id === project.student._id &&
-    project.status === 'in-progress';
 
   const canAddFeedback = user.role === 'faculty' || user.role === 'admin';
 
@@ -403,16 +397,30 @@ const ProjectDetails = () => {
     user.role === 'student' &&
     user.id === project.student._id &&
     project.status === 'in-progress' &&
+    project.adminStatus === 'approved' &&
+    project.supervisorStatus === 'accepted' &&
     selectedPhase && ['pending', 'rejected'].includes(selectedPhase.status);
 
   const submittedAt = project.codeReview?.submittedAt
-    ? new Date(project.codeReview.submittedAt).toLocaleString()
+    ? formatDateTime(project.codeReview.submittedAt)
     : 'Not submitted';
 
   return (
     <>
       <Navbar />
       <div className="dashboard-container project-details-page">
+        {/* Informational hint for students when approvals are missing */}
+        {user.role === 'student' && user.id === project.student._id && !(project.adminStatus === 'approved' && project.supervisorStatus === 'accepted') && (
+          <div className="project-card" style={{ borderLeft: '4px solid #f59e0b', padding: '12px 16px', marginBottom: '12px' }}>
+            <strong style={{ display: 'block', marginBottom: '6px' }}>Submission locked</strong>
+            <div style={{ color: '#374151' }}>
+              Your project must be approved by both your supervisor and an admin before you can submit phases.
+              <div style={{ marginTop: '6px', fontSize: '13px', color: '#6b7280' }}>
+                Supervisor: {project.supervisorStatus || 'pending'} • Admin: {project.adminStatus || 'pending'}
+              </div>
+            </div>
+          </div>
+        )}
         <button className="btn btn-outline mb-2" onClick={() => navigate(-1)}>
           <FiArrowLeft /> Back
         </button>
@@ -571,7 +579,7 @@ const ProjectDetails = () => {
                         </span>
                         {member.respondedAt && (
                           <small className="project-team-response-time">
-                            {new Date(member.respondedAt).toLocaleDateString()}
+                            {formatDate(member.respondedAt)}
                           </small>
                         )}
                       </div>
@@ -600,7 +608,35 @@ const ProjectDetails = () => {
               </div>
             </div>
 
-            {canSubmitPhase && (
+            {/* Submission Deadline Notice */}
+            {submissionDeadline && (
+              <div style={{
+                padding: '12px 16px',
+                marginBottom: '16px',
+                borderRadius: '6px',
+                backgroundColor: isDeadlineExpired ? '#fee2e2' : '#dcfce7',
+                border: `1px solid ${isDeadlineExpired ? '#fca5a5' : '#86efac'}`,
+                color: isDeadlineExpired ? '#991b1b' : '#166534'
+              }}>
+                {isDeadlineExpired ? (
+                  <>
+                    <strong>🔒 Submissions Closed</strong>
+                    <p style={{ margin: '4px 0 0' }}>
+                      Project submissions closed on {formatDateTime(submissionDeadline)}. You can no longer submit new phases.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <strong>📅 Submission Deadline</strong>
+                    <p style={{ margin: '4px 0 0' }}>
+                      Submissions close on {formatDateTime(submissionDeadline)}
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
+
+            {canSubmitPhase && !isDeadlineExpired && (
             <div className="project-phase-submit-box">
               <div className="project-phase-submit-header">
                 <div>
@@ -635,6 +671,11 @@ const ProjectDetails = () => {
                 <div className="project-phase-note-inline">
                   Required submission:&nbsp;
                   <strong>{SUBMISSION_TYPE_LABELS[getSubmissionType(selectedPhase)] || 'File upload'}</strong>
+                  {selectedPhase?.videoRequired && (
+                    <>
+                      {' & '}<strong>Video upload</strong>
+                    </>
+                  )}
                 </div>
 
                 {getSubmissionType(selectedPhase) === 'file' && (
@@ -650,16 +691,45 @@ const ProjectDetails = () => {
                       />
                     </div>
 
-                    <div className="form-group">
-                      <label className="form-label">Supporting Video</label>
-                      <input
-                        type="file"
-                        className="form-input"
-                        accept="video/*"
-                        onChange={(e) => setPhaseVideo(e.target.files[0] || null)}
-                      />
-                      <p className="project-input-hint">Mandatory for ZIP or RAR submissions.</p>
-                    </div>
+                    {(selectedPhase?.videoRequired || (phaseFile && isZipArchive(phaseFile))) && (
+                      <div className="form-group">
+                        <label className="form-label">
+                          {selectedPhase?.videoRequired ? 'Video Upload (Required)' : 'Walkthrough Video'}
+                        </label>
+                        <input
+                          type="file"
+                          className="form-input"
+                          accept="video/*"
+                          onChange={(e) => setPhaseVideo(e.target.files[0] || null)}
+                          required={selectedPhase?.videoRequired}
+                        />
+                        <p className="project-input-hint">
+                          {selectedPhase?.videoRequired ? (
+                            <>
+                              Video upload is required for this phase.
+                              {selectedPhase?.maxVideoDuration && (
+                                <> Maximum duration: {selectedPhase.maxVideoDuration} minute{selectedPhase.maxVideoDuration > 1 ? 's' : ''}.</>
+                              )}
+                            </>
+                          ) : (
+                            <>Mandatory for ZIP or RAR submissions.</>
+                          )}
+                        </p>
+                      </div>
+                    )}
+
+                    {!selectedPhase?.videoRequired && !phaseFile && (
+                      <div className="form-group">
+                        <label className="form-label">Supporting Video (Optional)</label>
+                        <input
+                          type="file"
+                          className="form-input"
+                          accept="video/*"
+                          onChange={(e) => setPhaseVideo(e.target.files[0] || null)}
+                        />
+                        <p className="project-input-hint">Attach a video to support your submission.</p>
+                      </div>
+                    )}
                   </>
                 )}
 
@@ -724,11 +794,27 @@ const ProjectDetails = () => {
             </div>
             )}
 
+            {isDeadlineExpired && canSubmitPhase && (
+              <div style={{
+                padding: '20px',
+                textAlign: 'center',
+                backgroundColor: '#fef3c7',
+                border: '1px solid #fcd34d',
+                borderRadius: '6px',
+                color: '#92400e',
+                marginBottom: '16px'
+              }}>
+                <p style={{ margin: 0, fontWeight: '600' }}>
+                  📝 Submissions are closed. Deadline has passed.
+                </p>
+              </div>
+            )}
+
             <div className="project-phase-grid">
               {projectPhases.map((phase, index) => {
                 const isLocked = projectPhases.slice(0, index).some((item) => item.status !== 'approved');
                 const canMentorReview = user.role === 'faculty' && project.supervisor && project.supervisor._id === user.id && ['submitted', 'rejected'].includes(phase.status);
-                const submittedAtLabel = phase.submission?.submittedAt ? new Date(phase.submission.submittedAt).toLocaleString() : 'Not submitted';
+                const submittedAtLabel = phase.submission?.submittedAt ? formatDateTime(phase.submission.submittedAt) : 'Not submitted';
                 const phaseFeedbackEntries = Array.isArray(phase.feedback)
                   ? phase.feedback.filter((entry) => entry && entry.message)
                   : [];
@@ -772,6 +858,7 @@ const ProjectDetails = () => {
                                     resource_type: phase.submission.fileResourceType,
                                     format: phase.submission.fileFormat
                                   }}
+                                  disablePdfPreview={true}
                                 />
                               </div>
                             </div>
@@ -842,7 +929,7 @@ const ProjectDetails = () => {
                           <div key={entry._id || `${phase._id}-feedback-${idx}`} style={{ marginTop: '8px' }}>
                             <p style={{ marginBottom: '4px' }}>{entry.message}</p>
                             <small className="project-muted">
-                              {entry.from?.name || 'Reviewer'} ({entry.role || 'faculty'}) · {entry.timestamp ? new Date(entry.timestamp).toLocaleString() : 'N/A'}
+                              {entry.from?.name || 'Reviewer'} ({entry.role || 'faculty'}) · {entry.timestamp ? formatDateTime(entry.timestamp) : 'N/A'}
                             </small>
                           </div>
                         ))}
@@ -882,7 +969,7 @@ const ProjectDetails = () => {
                         {phase.feedback.map((entry, idx) => (
                           <div key={idx} style={{ marginBottom: '12px', padding: '8px', background: '#fff3cd', borderRadius: '6px', borderLeft: '4px solid #ffc107' }}>
                             <p style={{ margin: '0 0 4px', fontSize: '0.9rem' }}>{entry.message}</p>
-                            <small style={{ color: '#666' }}>{entry.from?.name || 'Reviewer'} · {entry.timestamp ? new Date(entry.timestamp).toLocaleString() : 'N/A'}</small>
+                            <small style={{ color: '#666' }}>{entry.from?.name || 'Reviewer'} · {entry.timestamp ? formatDateTime(entry.timestamp) : 'N/A'}</small>
                           </div>
                         ))}
                         <p style={{ marginTop: '12px', fontSize: '0.9rem', color: '#666' }}>Student can now resubmit this phase above.</p>
@@ -895,77 +982,6 @@ const ProjectDetails = () => {
                 <p className="project-muted">No phase structure available for this project yet.</p>
               )}
             </div>
-          </section>
-
-          <section className="project-card project-card-wide">
-            <div className="project-card-header">
-              <h2>Code Review - Screen Recording</h2>
-            </div>
-            <div className="project-review-status">
-              <StatusBadge status={project.status} />
-              <StatusBadge status={project.codeReview?.status || 'pending'} prefix="Review" />
-            </div>
-            <p className="project-muted"><strong>Submission Date:</strong> {submittedAt}</p>
-
-            {project.codeReview?.feedback && (
-              <div className="project-review-feedback">
-                <h4>Review Feedback</h4>
-                <p>{project.codeReview.feedback}</p>
-              </div>
-            )}
-
-            {project.codeReview?.screenRecording && (
-              <div className="mt-1">
-                <DocumentActions file={project.codeReview.screenRecording} />
-              </div>
-            )}
-
-            {canReviewScreenRecording && (
-              <div className="project-action-box mt-2">
-                <h4>Review Submission</h4>
-                <textarea
-                  className="form-textarea"
-                  placeholder="Optional review feedback..."
-                  value={screenRecordingFeedback}
-                  onChange={(e) => setScreenRecordingFeedback(e.target.value)}
-                />
-                <div className="flex gap-1 mt-1">
-                  <button
-                    className="btn btn-success"
-                    onClick={() => handleScreenRecordingReview('approved')}
-                  >
-                    Approve
-                  </button>
-                  <button
-                    className="btn btn-danger"
-                    onClick={() => handleScreenRecordingReview('rejected')}
-                  >
-                    Reject
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {canUploadScreenRecording && (
-              <div className="project-action-box mt-2">
-                <h4>Submit Working Screen Recording</h4>
-                <p className="project-muted">
-                  Upload an end-to-end demo that clearly includes your team name and team ID.
-                </p>
-                <form onSubmit={handleScreenRecordingUpload} className="project-inline-form">
-                  <input
-                    type="file"
-                    className="form-input"
-                    accept="video/*"
-                    onChange={(e) => setScreenRecordingFile(e.target.files[0])}
-                    required
-                  />
-                  <button type="submit" className="btn btn-primary">
-                    <FiUpload /> Submit Recording
-                  </button>
-                </form>
-              </div>
-            )}
           </section>
 
           <section className="project-card">
@@ -1013,13 +1029,7 @@ const ProjectDetails = () => {
                   </button>
                 )}
 
-                {user.role === 'admin' && eligibleForCertificate && (
-                  <button className="btn btn-outline" style={{ marginLeft: 8 }} onClick={() => {
-                    const apiBase = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
-                    const previewUrl = `${apiBase}/projects/${id}/certificate?inline=1`;
-                    window.open(previewUrl, '_blank');
-                  }}>Preview Certificate</button>
-                )}
+                {/* Admin preview removed by request */}
               </div>
             </div>
             <p className="project-muted mt-1">Progress is now driven by approved phases.</p>
@@ -1056,7 +1066,7 @@ const ProjectDetails = () => {
                       <tr key={doc._id}>
                         <td>{doc.title}</td>
                         <td>{doc.uploadedBy.name}</td>
-                        <td>{new Date(doc.uploadedAt).toLocaleDateString()}</td>
+                        <td>{formatDate(doc.uploadedAt)}</td>
                         <td>
                           <DocumentActions file={doc} />
                         </td>
@@ -1081,7 +1091,7 @@ const ProjectDetails = () => {
                   <article key={idx} className="project-feedback-item">
                     <div className="flex-between">
                       <strong>{fb.from.name} ({fb.from.role})</strong>
-                      <small>{new Date(fb.createdAt).toLocaleString()}</small>
+                      <small>{formatDateTime(fb.createdAt)}</small>
                     </div>
                     <p>{fb.message}</p>
                   </article>

@@ -12,7 +12,10 @@ export const projectService = {
 
   async getProjectById(projectId) {
     const response = await apiClient.get(`/projects/${projectId}`);
-    return response.data.project;
+    return {
+      project: response.data.project,
+      submissionDeadline: response.data.submissionDeadline
+    };
   },
 
   async createProject(formData) {

@@ -20,7 +20,16 @@ export const AuthProvider = ({ children }) => {
     const loadUser = async () => {
       try {
         const currentUser = await authService.getCurrentUser();
-        setUser(currentUser);
+        // Normalize user object so code can rely on `id` field across login and reload
+        if (currentUser) {
+          const normalized = {
+            ...currentUser,
+            id: currentUser.id || currentUser._id || (currentUser._doc && currentUser._doc._id) || null
+          };
+          setUser(normalized);
+        } else {
+          setUser(null);
+        }
       } catch (error) {
         setUser(null);
       }

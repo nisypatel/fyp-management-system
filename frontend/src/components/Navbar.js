@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { FiBell, FiUser, FiLogOut, FiHome } from 'react-icons/fi';
 import { notificationService } from '../services/notificationService';
+import { formatDateTime } from '../utils/dateFormat';
 import '../styles/navbar.css';
 
 const Navbar = () => {
@@ -103,7 +104,7 @@ const Navbar = () => {
                           <p className="notification-title">{notif.title}</p>
                           <p className="notification-message">{notif.message}</p>
                           <small className="notification-time">
-                            {new Date(notif.createdAt).toLocaleDateString()}
+                            {formatDateTime(notif.createdAt)}
                           </small>
                         </div>
                         {!notif.isRead && <div className="unread-indicator"></div>}

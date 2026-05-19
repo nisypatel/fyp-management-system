@@ -14,6 +14,7 @@ import StatsCard from '../components/ui/StatsCard';
 import StatusBadge from '../components/ui/StatusBadge';
 import DocumentActions from '../components/ui/DocumentActions';
 import { triggerProjectSync } from '../utils/projectSync';
+import { formatDate, formatDateTime, formatInputDateTime } from '../utils/dateFormat';
 
 import { departmentService } from '../services/departmentService';
 import { systemService } from '../services/systemService';
@@ -30,10 +31,12 @@ const normalizeSubmissionType = (value) => {
   return allowedTypes.has(value) ? value : 'file';
 };
 
-const createPhaseRow = (title = '', submissionType = 'file') => ({
+const createPhaseRow = (title = '', submissionType = 'file', videoRequired = false, maxVideoDuration = null) => ({
   id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
   title,
-  submissionType: normalizeSubmissionType(submissionType)
+  submissionType: normalizeSubmissionType(submissionType),
+  videoRequired: !!videoRequired,
+  maxVideoDuration: maxVideoDuration ? parseInt(maxVideoDuration, 10) : null
 });
 
 const AdminDashboard = () => {
@@ -87,6 +90,13 @@ const AdminDashboard = () => {
   const [presetPhases, setPresetPhases] = useState([createPhaseRow('Phase 1')]);
   const [presetSaving, setPresetSaving] = useState(false);
   const [editingPreset, setEditingPreset] = useState(null);
+
+  // Submission deadline state
+  const [submissionDeadline, setSubmissionDeadline] = useState(null);
+  const [deadlineIsExpired, setDeadlineIsExpired] = useState(false);
+  const [newDeadline, setNewDeadline] = useState('');
+  const [loadingDeadline, setLoadingDeadline] = useState(false);
+  const [savingDeadline, setSavingDeadline] = useState(false);
 
   // Pagination state
   const [projectsPagination, setProjectsPagination] = useState({
@@ -153,7 +163,7 @@ const AdminDashboard = () => {
       } else if (activeTab === 'phases') {
         setPhaseTemplateLoading(true);
         const response = await projectService.getPhaseTemplate();
-        const rows = (response.phases || []).map((phase) => createPhaseRow(phase.title, phase.submissionType));
+        const rows = (response.phases || []).map((phase) => createPhaseRow(phase.title, phase.submissionType, phase.videoRequired, phase.maxVideoDuration));
         setPhaseTemplate(rows.length ? rows : [createPhaseRow('Phase 1')]);
         setPhaseTemplateLoading(false);
       } else if (activeTab === 'presets') {
@@ -173,6 +183,21 @@ const AdminDashboard = () => {
           setCollegeLogoUrl(settings.college_logo_url || '');
         } catch (err) {
           // ignore
+        }
+      } else if (activeTab === 'submissions') {
+        setLoadingDeadline(true);
+        try {
+          const deadlineData = await systemService.getSubmissionDeadline();
+          setSubmissionDeadline(deadlineData.deadline);
+          setDeadlineIsExpired(deadlineData.isExpired || false);
+          if (deadlineData.deadline) {
+            const date = new Date(deadlineData.deadline);
+            setNewDeadline(formatInputDateTime(deadlineData.deadline));
+          }
+        } catch (err) {
+          toast.error('Failed to load submission deadline');
+        } finally {
+          setLoadingDeadline(false);
         }
       }
     } catch (error) {
@@ -387,7 +412,7 @@ const AdminDashboard = () => {
     setPresetName(preset.name);
     setPresetPhases(
       (preset.phases || []).map((phase, index) =>
-        createPhaseRow(phase.title || `Phase ${index + 1}`, phase.submissionType)
+        createPhaseRow(phase.title || `Phase ${index + 1}`, phase.submissionType, phase.videoRequired, phase.maxVideoDuration)
       )
     );
     setShowPresetModal(true);
@@ -429,6 +454,19 @@ const AdminDashboard = () => {
     )));
   };
 
+  const handlePresetPhaseVideoRequiredChange = (id, videoRequired) => {
+    setPresetPhases(prev => prev.map((phase) => (
+      phase.id === id ? { ...phase, videoRequired: !!videoRequired, maxVideoDuration: !videoRequired ? null : phase.maxVideoDuration } : phase
+    )));
+  };
+
+  const handlePresetPhaseMaxVideoDurationChange = (id, duration) => {
+    const numDuration = duration ? parseInt(duration, 10) : null;
+    setPresetPhases(prev => prev.map((phase) => (
+      phase.id === id ? { ...phase, maxVideoDuration: numDuration } : phase
+    )));
+  };
+
   const handleSavePreset = async (e) => {
     e.preventDefault();
     if (!presetName.trim()) {
@@ -442,7 +480,9 @@ const AdminDashboard = () => {
         name: presetName.trim(),
         phases: presetPhases.map((phase) => ({
           title: phase.title || 'Untitled Phase',
-          submissionType: normalizeSubmissionType(phase.submissionType)
+          submissionType: normalizeSubmissionType(phase.submissionType),
+          videoRequired: !!phase.videoRequired,
+          maxVideoDuration: phase.videoRequired && phase.maxVideoDuration ? parseInt(phase.maxVideoDuration, 10) : null
         }))
       };
 
@@ -547,6 +587,19 @@ const AdminDashboard = () => {
     )));
   };
 
+  const updatePhaseVideoRequired = (id, videoRequired) => {
+    setPhaseTemplate((current) => current.map((phase) => (
+      phase.id === id ? { ...phase, videoRequired: !!videoRequired, maxVideoDuration: !videoRequired ? null : phase.maxVideoDuration } : phase
+    )));
+  };
+
+  const updatePhaseMaxVideoDuration = (id, duration) => {
+    const numDuration = duration ? parseInt(duration, 10) : null;
+    setPhaseTemplate((current) => current.map((phase) => (
+      phase.id === id ? { ...phase, maxVideoDuration: numDuration } : phase
+    )));
+  };
+
   const addPhaseRow = () => {
     setPhaseTemplate((current) => [...current, createPhaseRow(`Phase ${current.length + 1}`)]);
   };
@@ -579,7 +632,9 @@ const AdminDashboard = () => {
     const payload = phaseTemplate
       .map((phase) => ({
         title: phase.title.trim(),
-        submissionType: normalizeSubmissionType(phase.submissionType)
+        submissionType: normalizeSubmissionType(phase.submissionType),
+        videoRequired: !!phase.videoRequired,
+        maxVideoDuration: phase.videoRequired && phase.maxVideoDuration ? parseInt(phase.maxVideoDuration, 10) : null
       }))
       .filter((phase) => phase.title);
 
@@ -597,7 +652,7 @@ const AdminDashboard = () => {
     setSavingPhaseTemplate(true);
     try {
       const response = await projectService.updatePhaseTemplate(payload);
-      const rows = (response.phases || []).map((phase) => createPhaseRow(phase.title, phase.submissionType));
+      const rows = (response.phases || []).map((phase) => createPhaseRow(phase.title, phase.submissionType, phase.videoRequired, phase.maxVideoDuration));
       setPhaseTemplate(rows);
       toast.success('Phase template updated successfully');
     } catch (error) {
@@ -739,6 +794,12 @@ const AdminDashboard = () => {
                 >
                   Manage Departments
                 </button>
+                <button
+                  className={`btn ${activeTab === 'submissions' ? 'btn-primary' : 'btn-outline'}`}
+                  onClick={() => setActiveTab('submissions')}
+                >
+                  Submission Settings
+                </button>
               </div>
               {activeTab === 'users' && (
                 <button className="btn btn-primary" onClick={() => setShowUserModal(true)}>
@@ -859,13 +920,13 @@ const AdminDashboard = () => {
                 <div className="table-container">
                   <table>
                     <thead>
-                      <tr>
-                        <th>Student</th>
-                        <th>Title</th>
-                        <th>Supervisor</th>
-                        <th>Category</th>
-                        <th>Status</th>
-                        <th>Admin Status</th>
+                        <tr>
+                        <th className="student-cell">Student</th>
+                        <th className="title-cell">Title</th>
+                        <th className="supervisor-cell">Supervisor</th>
+                        <th className="category-cell">Category</th>
+                        <th className="status-cell">Status</th>
+                        <th className="admin-status-cell">Admin Status</th>
                         <th className="action-cell">Actions</th>
                       </tr>
                     </thead>
@@ -1070,54 +1131,83 @@ const AdminDashboard = () => {
                       </div>
 
                       {phaseTemplate.map((phase, index) => (
-                        <div key={phase.id} style={{ display: 'grid', gridTemplateColumns: '40px minmax(0, 1fr) minmax(180px, 220px) auto', gap: '10px', alignItems: 'center', marginBottom: '10px' }}>
-                          <span className="badge badge-secondary">{index + 1}</span>
-                          <input
-                            type="text"
-                            className="form-input"
-                            value={phase.title}
-                            onChange={(e) => updatePhaseTitle(phase.id, e.target.value)}
-                            placeholder={`Phase ${index + 1} title`}
-                            maxLength={100}
-                          />
-                          <select
-                            className="form-select"
-                            value={phase.submissionType || 'file'}
-                            onChange={(e) => updatePhaseSubmissionType(phase.id, e.target.value)}
-                          >
-                            {SUBMISSION_TYPE_OPTIONS.map((option) => (
-                              <option key={option.value} value={option.value}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                          <div className="flex gap-1" style={{ flexWrap: 'nowrap' }}>
-                            <button
-                              type="button"
-                              className="btn btn-sm btn-outline"
-                              onClick={() => movePhaseRow(index, -1)}
-                              disabled={index === 0}
-                              title="Move up"
+                        <div key={phase.id}>
+                          <div style={{ display: 'grid', gridTemplateColumns: '40px minmax(0, 1fr) minmax(180px, 220px) auto', gap: '10px', alignItems: 'center', marginBottom: '10px' }}>
+                            <span className="badge badge-secondary">{index + 1}</span>
+                            <input
+                              type="text"
+                              className="form-input"
+                              value={phase.title}
+                              onChange={(e) => updatePhaseTitle(phase.id, e.target.value)}
+                              placeholder={`Phase ${index + 1} title`}
+                              maxLength={100}
+                            />
+                            <select
+                              className="form-select"
+                              value={phase.submissionType || 'file'}
+                              onChange={(e) => updatePhaseSubmissionType(phase.id, e.target.value)}
                             >
-                              Up
-                            </button>
-                            <button
-                              type="button"
-                              className="btn btn-sm btn-outline"
-                              onClick={() => movePhaseRow(index, 1)}
-                              disabled={index === phaseTemplate.length - 1}
-                              title="Move down"
-                            >
-                              Down
-                            </button>
-                            <button
-                              type="button"
-                              className="btn btn-sm btn-danger"
-                              onClick={() => removePhaseRow(phase.id)}
-                              disabled={phaseTemplate.length <= 1}
-                            >
-                              Remove
-                            </button>
+                              {SUBMISSION_TYPE_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                            <div className="flex gap-1" style={{ flexWrap: 'nowrap' }}>
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-outline"
+                                onClick={() => movePhaseRow(index, -1)}
+                                disabled={index === 0}
+                                title="Move up"
+                              >
+                                Up
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-outline"
+                                onClick={() => movePhaseRow(index, 1)}
+                                disabled={index === phaseTemplate.length - 1}
+                                title="Move down"
+                              >
+                                Down
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-danger"
+                                onClick={() => removePhaseRow(phase.id)}
+                                disabled={phaseTemplate.length <= 1}
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          </div>
+                          <div style={{ marginLeft: '40px', marginBottom: '14px', paddingLeft: '12px', paddingTop: '8px', borderLeft: '2px solid #e5e7eb' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginBottom: '8px' }}>
+                              <input
+                                type="checkbox"
+                                checked={!!phase.videoRequired}
+                                onChange={(e) => updatePhaseVideoRequired(phase.id, e.target.checked)}
+                                style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                              />
+                              <span style={{ fontWeight: '500', userSelect: 'none' }}>Require video upload for this phase</span>
+                            </label>
+                            {phase.videoRequired && (
+                              <div>
+                                <label className="form-label" style={{ marginBottom: '6px', fontSize: '14px' }}>Max video duration (minutes)</label>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  max="120"
+                                  className="form-input"
+                                  value={phase.maxVideoDuration || ''}
+                                  onChange={(e) => updatePhaseMaxVideoDuration(phase.id, e.target.value)}
+                                  placeholder="Leave empty for no limit"
+                                  style={{ maxWidth: '160px', fontSize: '14px' }}
+                                />
+                                <small style={{ color: '#6b7280', display: 'block', marginTop: '4px' }}>Students cannot upload videos longer than this duration</small>
+                              </div>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -1167,7 +1257,7 @@ const AdminDashboard = () => {
                             <td>
                               <StatusBadge status={preset.isActive ? 'active' : 'inactive'} />
                             </td>
-                            <td>{new Date(preset.createdAt).toLocaleDateString()}</td>
+                            <td>{formatDate(preset.createdAt)}</td>
                             <td className="action-cell">
                               <div className="action-group">
                                 <button
@@ -1329,7 +1419,7 @@ const AdminDashboard = () => {
                             <td>
                               <StatusBadge status={user.verificationStatus} />
                             </td>
-                            <td>{user.idCardFile ? new Date(user.idCardFile.uploadedAt).toLocaleDateString() : 'N/A'}</td>
+                            <td>{user.idCardFile ? formatDate(user.idCardFile.uploadedAt) : 'N/A'}</td>
                             <td className="action-cell">
                               <div className="action-group">
                                 {user.idCardFile && (
@@ -1384,7 +1474,7 @@ const AdminDashboard = () => {
                         <tr key={d._id}>
                           <td>{d.name}</td>
                           <td>{d.code || '-'}</td>
-                          <td>{new Date(d.createdAt).toLocaleString()}</td>
+                          <td>{formatDateTime(d.createdAt)}</td>
                           <td className="action-cell">
                             <div className="action-group">
                               <button className="btn btn-sm btn-outline" onClick={() => {
@@ -1400,6 +1490,109 @@ const AdminDashboard = () => {
                     </tbody>
                   </table>
                 </div>
+              </div>
+            )}
+            {activeTab === 'submissions' && (
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                  <h3 style={{ margin: 0 }}>Submission Deadline Management</h3>
+                </div>
+
+                {loadingDeadline ? (
+                  <p>Loading deadline...</p>
+                ) : (
+                  <div style={{ maxWidth: '600px' }}>
+                    <div style={{
+                      padding: '20px',
+                      border: '1px solid #d9e4f0',
+                      borderRadius: '8px',
+                      backgroundColor: '#f8fafc',
+                      marginBottom: '20px'
+                    }}>
+                      <div style={{ marginBottom: '16px' }}>
+                        <p style={{ margin: '0 0 8px', fontSize: '0.9rem', color: '#5b6b7d' }}>Current Deadline Status</p>
+                        {submissionDeadline ? (
+                          <>
+                            <p style={{ margin: '0 0 8px', fontWeight: '600', fontSize: '1.1rem', color: '#0f4c81' }}>
+                              {formatDateTime(submissionDeadline)}
+                            </p>
+                            <p style={{
+                              margin: 0,
+                              padding: '8px 12px',
+                              borderRadius: '4px',
+                              backgroundColor: deadlineIsExpired ? '#fee2e2' : '#dcfce7',
+                              color: deadlineIsExpired ? '#991b1b' : '#166534',
+                              fontSize: '0.9rem',
+                              display: 'inline-block'
+                            }}>
+                              {deadlineIsExpired ? '❌ Submissions CLOSED' : '✅ Submissions OPEN'}
+                            </p>
+                          </>
+                        ) : (
+                          <p style={{ margin: 0, color: '#5b6b7d' }}>No deadline set yet</p>
+                        )}
+                      </div>
+
+                      <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #d9e4f0' }}>
+                        <label className="form-label" style={{ marginBottom: '12px', display: 'block' }}>
+                          Set New Deadline (Admin can extend even after expiry)
+                        </label>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <input
+                            type="datetime-local"
+                            className="form-input"
+                            value={newDeadline}
+                            onChange={(e) => setNewDeadline(e.target.value)}
+                            style={{ flex: 1 }}
+                          />
+                          <button
+                            className="btn btn-primary"
+                            disabled={savingDeadline || !newDeadline}
+                            onClick={async () => {
+                              if (!newDeadline) {
+                                toast.error('Please select a date and time');
+                                return;
+                              }
+                              setSavingDeadline(true);
+                              try {
+                                const deadlineDate = new Date(newDeadline).toISOString();
+                                await systemService.setSubmissionDeadline(deadlineDate);
+                                toast.success('Submission deadline updated!');
+                                // Refresh deadline data
+                                const deadlineData = await systemService.getSubmissionDeadline();
+                                setSubmissionDeadline(deadlineData.deadline);
+                                setDeadlineIsExpired(deadlineData.isExpired || false);
+                              } catch (error) {
+                                toast.error('Failed to update deadline');
+                              } finally {
+                                setSavingDeadline(false);
+                              }
+                            }}
+                          >
+                            {savingDeadline ? 'Updating...' : 'Update Deadline'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{
+                      padding: '16px',
+                      backgroundColor: '#fef3c7',
+                      border: '1px solid #fcd34d',
+                      borderRadius: '8px',
+                      color: '#92400e'
+                    }}>
+                      <p style={{ margin: '0 0 8px', fontWeight: '600' }}>ℹ️ Important Information</p>
+                      <ul style={{ margin: 0, paddingLeft: '20px' }}>
+                        <li>After the deadline expires, students cannot submit or upload any phases</li>
+                        <li>Submit buttons will be automatically disabled for students</li>
+                        <li>Faculty can still review and approve existing submissions</li>
+                        <li>Students can still view projects and download certificates</li>
+                        <li>You can extend the deadline anytime, even after it has expired</li>
+                      </ul>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1478,6 +1671,33 @@ const AdminDashboard = () => {
                         >
                           Remove
                         </button>
+                      </div>
+                      <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid #e5e7eb' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginBottom: '10px' }}>
+                          <input
+                            type="checkbox"
+                            checked={!!phase.videoRequired}
+                            onChange={(e) => handlePresetPhaseVideoRequiredChange(phase.id, e.target.checked)}
+                            style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                          />
+                          <span style={{ fontWeight: '500', userSelect: 'none' }}>Require video upload for this phase</span>
+                        </label>
+                        {phase.videoRequired && (
+                          <div>
+                            <label className="form-label" style={{ marginBottom: '6px' }}>Max video duration (minutes)</label>
+                            <input
+                              type="number"
+                              min="1"
+                              max="120"
+                              className="form-input"
+                              value={phase.maxVideoDuration || ''}
+                              onChange={(e) => handlePresetPhaseMaxVideoDurationChange(phase.id, e.target.value)}
+                              placeholder="Leave empty for no limit"
+                              style={{ maxWidth: '180px' }}
+                            />
+                            <small style={{ color: '#6b7280', display: 'block', marginTop: '4px' }}>Students cannot upload videos longer than this duration</small>
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}

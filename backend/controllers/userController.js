@@ -6,6 +6,7 @@ const Notification = require('../models/Notification');
 const { normalizeRole } = require('../utils/role');
 const { appendAuditEntry, buildAuditEntry } = require('../utils/auditTrail');
 const { sendEmail } = require('../utils/sendEmail');
+const logger = require('../utils/logger');
 const { uploadFileToCloudinary, deleteFromCloudinary } = require('../utils/cloudinary');
 
 const VERIFICATION_DOMAIN_KEY = 'verification_email_domain';
@@ -17,27 +18,19 @@ const getVerificationDomain = async () => {
   return normalizeDomain(setting?.value || process.env.COLLEGE_EMAIL_DOMAIN || '');
 };
 
-const getLocalPartFromEmail = (email = '') => {
-  const [localPart] = String(email).split('@');
-  return (localPart || '').trim().toLowerCase();
-};
-
-// @desc    Get all users
+// @desc    Get all users (with optional pagination, role filter and search)
 // @route   GET /api/users
 // @access  Private (Admin)
 exports.getUsers = async (req, res) => {
   try {
-    const { role, q } = req.query;
-    const hasPagination = req.query.page !== undefined || req.query.limit !== undefined;
-    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
-    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 100);
-    const skip = (page - 1) * limit;
-    let query = {};
-    
-    if (role) {
-      query.role = normalizeRole(role);
-    }
+    const { page, limit, role, q } = req.query;
+    const hasPagination = !!(page || limit);
+    const pageNum = Math.max(parseInt(page, 10) || 1, 1);
+    const limitNum = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 100);
+    const skip = (pageNum - 1) * limitNum;
 
+    const query = {};
+    if (role) query.role = normalizeRole(role);
     if (q && q.trim()) {
       const escaped = q.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       query.$or = [
@@ -47,16 +40,10 @@ exports.getUsers = async (req, res) => {
     }
 
     const usersQuery = User.find(query).select('-password').populate({ path: 'department', select: 'name' }).sort('-createdAt');
-    if (hasPagination) {
-      usersQuery.skip(skip).limit(limit);
-    }
+    if (hasPagination) usersQuery.skip(skip).limit(limitNum);
 
-    const [users, total] = await Promise.all([
-      usersQuery,
-      User.countDocuments(query)
-    ]);
+    const [users, total] = await Promise.all([usersQuery, User.countDocuments(query)]);
 
-    // normalize department to string for backward compatibility
     const normalizedUsers = users.map((u) => {
       const obj = u.toObject();
       if (obj.department) obj.department = obj.department.name || obj.department;
@@ -67,16 +54,44 @@ exports.getUsers = async (req, res) => {
       success: true,
       count: normalizedUsers.length,
       total,
-      page: hasPagination ? page : 1,
-      limit: hasPagination ? limit : total,
-      totalPages: hasPagination ? Math.ceil(total / limit) : 1,
+      page: hasPagination ? pageNum : 1,
+      limit: hasPagination ? limitNum : total,
+      totalPages: hasPagination ? Math.ceil(total / limitNum) : 1,
       users: normalizedUsers
     });
   } catch (error) {
-    res.status(400).json({
-      success: false,
-      message: 'An error occurred. Please try again.'
-    });
+    logger.error('Error in getUsers', { message: error.message, stack: error.stack });
+    res.status(400).json({ success: false, message: error.message || 'An error occurred. Please try again.' });
+  }
+};
+
+const getLocalPartFromEmail = (email = '') => {
+  const [localPart] = String(email).split('@');
+  return (localPart || '').trim().toLowerCase();
+};
+
+// Ensure user.department is an ObjectId (if a Department exists for a legacy string value)
+const ensureDepartmentIsObjectId = async (user) => {
+  try {
+    const mongoose = require('mongoose');
+    if (!user) return;
+    const Department = require('../models/Department');
+    const depVal = user.department;
+    if (!depVal) return;
+
+    // If already an ObjectId (or a value that casts to valid ObjectId), leave it
+    if (mongoose.Types.ObjectId.isValid(String(depVal))) return;
+
+    // Otherwise try to find a department by name matching the string
+    const found = await Department.findOne({ name: { $regex: `^${String(depVal).trim()}$`, $options: 'i' } }).select('_id');
+    if (found) {
+      user.department = found._id;
+    } else {
+      // No matching department; clear the field to avoid cast errors
+      user.department = undefined;
+    }
+  } catch (err) {
+    logger.warn('Failed to normalize user.department', { message: err.message, stack: err.stack, userId: user?._id });
   }
 };
 
@@ -88,18 +103,23 @@ exports.getFaculty = async (req, res) => {
     const { department, q } = req.query;
     const facultyQuery = { role: 'faculty', isActive: true };
 
+    let rawStringDeptFilter = null;
     if (department && String(department).trim()) {
       const deptVal = String(department).trim();
-      // If looks like an ObjectId, query by id, otherwise assume it's a department name
       const mongoose = require('mongoose');
+      const Department = require('../models/Department');
+      // If looks like an ObjectId, query by id
       if (mongoose.Types.ObjectId.isValid(deptVal)) {
         facultyQuery.department = mongoose.Types.ObjectId(deptVal);
       } else {
-        // Some legacy users may still have department stored as string
-        facultyQuery.$or = [
-          { department: deptVal },
-          { department: mongoose.Types.ObjectId.isValid(deptVal) ? mongoose.Types.ObjectId(deptVal) : undefined }
-        ].filter(Boolean);
+        // Try resolve department name to an id first
+        const foundDept = await Department.findOne({ name: { $regex: `^${deptVal}$`, $options: 'i' } }).select('_id');
+        if (foundDept) {
+          facultyQuery.department = foundDept._id;
+        } else {
+          // No Department doc matched; we'll fallback to a raw collection query
+          rawStringDeptFilter = deptVal;
+        }
       }
     }
 
@@ -111,10 +131,29 @@ exports.getFaculty = async (req, res) => {
       ];
     }
 
-    const facultyUsers = await User.find(facultyQuery)
-      .select('name email employeeId department')
-      .populate({ path: 'department', select: 'name code' })
-      .sort('name');
+    let facultyUsers = [];
+    const mongoose = require('mongoose');
+    if (rawStringDeptFilter) {
+      // Use raw collection query to avoid Mongoose casting legacy string department values to ObjectId
+      const raw = await mongoose.connection.db.collection('users').find({
+        role: 'faculty',
+        isActive: true,
+        department: rawStringDeptFilter
+      }).project({ name: 1, email: 1, employeeId: 1, department: 1 }).toArray();
+      // Convert raw results to a shape similar to Mongoose docs
+      facultyUsers = raw.map(r => ({
+        _id: r._id,
+        name: r.name,
+        email: r.email,
+        employeeId: r.employeeId,
+        department: r.department
+      }));
+    } else {
+      facultyUsers = await User.find(facultyQuery)
+        .select('name email employeeId department')
+        .populate({ path: 'department', select: 'name code' })
+        .sort('name');
+    }
 
     const [activeLoads, pendingLoads] = await Promise.all([
       Project.aggregate([
@@ -199,9 +238,10 @@ exports.getFaculty = async (req, res) => {
       faculty
     });
   } catch (error) {
+    logger.error('Error in confirmOTPVerification', { message: error.message, stack: error.stack });
     res.status(400).json({
       success: false,
-      message: 'An error occurred. Please try again.'
+      message: error.message || 'An error occurred. Please try again.'
     });
   }
 };
@@ -394,6 +434,7 @@ exports.updateUser = async (req, res) => {
       changes: 'Admin updated user profile fields'
     });
 
+    await ensureDepartmentIsObjectId(user);
     await user.save();
 
     res.status(200).json({
@@ -693,6 +734,7 @@ exports.getDashboardStats = async (req, res) => {
 // @access  Private (Student)
 exports.requestOTPVerification = async (req, res) => {
   try {
+    logger.info('OTP verification request', { userId: req.user?.id, body: req.body });
     const { emailLocalPart } = req.body;
     const user = await User.findById(req.user.id);
 
@@ -711,12 +753,21 @@ exports.requestOTPVerification = async (req, res) => {
       });
     }
 
-    const verificationDomain = await getVerificationDomain();
+    let verificationDomain = await getVerificationDomain();
+    logger.info('Verification domain resolved', { verificationDomain });
     if (!verificationDomain) {
-      return res.status(400).json({
-        success: false,
-        message: 'Verification email domain is not configured by admin yet'
-      });
+      // Fall back to user's current email domain for local/dev convenience
+      const userEmailDomain = (user.email || '').split('@')[1] || '';
+      if (userEmailDomain) {
+        verificationDomain = normalizeDomain(userEmailDomain);
+        logger.warn('Verification domain not configured; falling back to user email domain', { userEmailDomain });
+      } else {
+        logger.warn('Verification domain not configured and user has no email domain');
+        return res.status(400).json({
+          success: false,
+          message: 'Verification email domain is not configured by admin yet'
+        });
+      }
     }
 
     const normalizedLocalPart = String(emailLocalPart || '').trim().toLowerCase();
@@ -746,6 +797,7 @@ exports.requestOTPVerification = async (req, res) => {
       notes: `OTP requested for ${verificationEmail}`
     });
 
+    await ensureDepartmentIsObjectId(user);
     await user.save();
 
     try {
@@ -841,6 +893,7 @@ exports.confirmOTPVerification = async (req, res) => {
       notes: 'OTP verification successful'
     });
 
+    await ensureDepartmentIsObjectId(user);
     await user.save();
 
     res.status(200).json({
@@ -895,6 +948,7 @@ exports.uploadIDCard = async (req, res) => {
       notes: 'ID card uploaded for verification'
     });
 
+    await ensureDepartmentIsObjectId(user);
     await user.save();
 
     // Notify admins

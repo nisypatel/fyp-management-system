@@ -6,6 +6,7 @@ import { toast } from 'react-toastify';
 import { FiPlus, FiFolder, FiClock, FiCheckCircle, FiUpload } from 'react-icons/fi';
 import { userService } from '../services/userService';
 import { projectService } from '../services/projectService';
+import { systemService } from '../services/systemService';
 import usePageTitle from '../hooks/usePageTitle';
 import Navbar from '../components/Navbar';
 import DashboardHeader from '../components/ui/DashboardHeader';
@@ -14,6 +15,7 @@ import StatusBadge from '../components/ui/StatusBadge';
 import EmptyState from '../components/ui/EmptyState';
 import { getApiErrorMessage, hasAllowedExtension, isValidEmail, maxSizeInBytes } from '../utils/validation';
 import { subscribeToProjectSync } from '../utils/projectSync';
+import { formatDateTime } from '../utils/dateFormat';
 
 const StudentDashboard = () => {
   const idCardMaxSize = 5 * 1024 * 1024;
@@ -55,6 +57,8 @@ const StudentDashboard = () => {
   const [isOtpSent, setIsOtpSent] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [submissionDeadline, setSubmissionDeadline] = useState(null);
+  const [isDeadlineExpired, setIsDeadlineExpired] = useState(false);
   
   // Add filter logic
   const filteredProjects = projects.filter(project => {
@@ -89,17 +93,22 @@ const StudentDashboard = () => {
 
   const fetchDashboardData = useCallback(async () => {
     try {
-      const [dashboardStats, allProjects, allFaculty, pendingInvites, verificationConfig] = await Promise.all([
+      const [dashboardStats, allProjects, allFaculty, pendingInvites, verificationConfig, deadlineData] = await Promise.all([
         userService.getDashboardStats(),
         projectService.getProjects(),
         userService.getFaculty(user?.role === 'student' ? { department: user?.department } : {}),
         projectService.getTeamInvites(),
-        userService.getVerificationConfig()
+        userService.getVerificationConfig(),
+        systemService.getSubmissionDeadline().catch(() => ({ deadline: null, isExpired: false }))
       ]);
       setStats(dashboardStats);
       setProjects(allProjects);
       setFaculty(allFaculty);
       setTeamInvites(pendingInvites);
+      if (deadlineData) {
+        setSubmissionDeadline(deadlineData.deadline);
+        setIsDeadlineExpired(deadlineData.isExpired || false);
+      }
       const nextVerificationStatus = verificationConfig.verificationStatus || user?.verificationStatus || 'unverified';
       setVerificationStatus(nextVerificationStatus);
       setIsOtpSent(false);
@@ -411,6 +420,34 @@ const StudentDashboard = () => {
             onClick={() => setStatusFilter('completed')} 
             icon={FiCheckCircle} variant="success" value={stats.completed} label="Completed" />
         </div>
+
+        {/* Submission Deadline Notice */}
+        {submissionDeadline && (
+          <div style={{
+            padding: '12px 16px',
+            marginBottom: '20px',
+            borderRadius: '6px',
+            backgroundColor: isDeadlineExpired ? '#fee2e2' : '#dcfce7',
+            border: `1px solid ${isDeadlineExpired ? '#fca5a5' : '#86efac'}`,
+            color: isDeadlineExpired ? '#991b1b' : '#166534'
+          }}>
+            {isDeadlineExpired ? (
+              <>
+                <strong>🔒 Submissions Closed</strong>
+                <p style={{ margin: '4px 0 0' }}>
+                  Project submissions closed on {formatDateTime(submissionDeadline)}. You can no longer submit new phases.
+                </p>
+              </>
+            ) : (
+              <>
+                <strong>📅 Submission Deadline</strong>
+                <p style={{ margin: '4px 0 0' }}>
+                  Submissions close on {formatDateTime(submissionDeadline)}
+                </p>
+              </>
+            )}
+          </div>
+        )}
 
         {/* Verification Card */}
         {verificationStatus !== 'verified' && (

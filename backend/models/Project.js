@@ -108,6 +108,14 @@ const projectSchema = new mongoose.Schema({
         type: String,
         enum: ['file', 'url', 'text', 'textarea'],
         default: 'file'
+      },
+      videoRequired: {
+        type: Boolean,
+        default: false
+      },
+      maxVideoDuration: {
+        type: Number,
+        default: null
       }
     }],
     default: []
@@ -166,6 +174,14 @@ const projectSchema = new mongoose.Schema({
         type: String,
         enum: ['file', 'url', 'text', 'textarea'],
         default: 'file'
+      },
+      videoRequired: {
+        type: Boolean,
+        default: false
+      },
+      maxVideoDuration: {
+        type: Number,
+        default: null
       },
       status: {
         type: String,

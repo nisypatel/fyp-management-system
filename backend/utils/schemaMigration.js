@@ -40,12 +40,28 @@ const migrateSchema = async () => {
     const presets = await Preset.find();
     for (const preset of presets) {
       if (Array.isArray(preset.phases)) {
-        const normalized = preset.phases.map((phase, index) => ({
-          title: phase.title || `Phase ${index + 1}`,
-          order: index + 1
-        }));
-        preset.phases = normalized;
-        await preset.save();
+        // Preserve any existing phase properties (submissionType, videoRequired, maxVideoDuration, etc.)
+        const normalized = preset.phases.map((phase, index) => {
+          const p = typeof phase.toObject === 'function' ? phase.toObject() : { ...phase };
+          return {
+            // ensure title/order exist while keeping other keys
+            title: p.title || `Phase ${index + 1}`,
+            order: index + 1,
+            submissionType: p.submissionType || 'file',
+            videoRequired: typeof p.videoRequired === 'boolean' ? p.videoRequired : false,
+            maxVideoDuration: typeof p.maxVideoDuration === 'number' ? p.maxVideoDuration : null,
+            // include any additional keys that might be present
+            ...(p || {})
+          };
+        });
+
+        // Only save if something actually changed to avoid unnecessary writes
+        const oldJson = JSON.stringify(preset.phases || []);
+        const newJson = JSON.stringify(normalized || []);
+        if (oldJson !== newJson) {
+          preset.phases = normalized;
+          await preset.save();
+        }
       }
     }
 

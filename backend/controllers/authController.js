@@ -193,7 +193,7 @@ exports.register = async (req, res) => {
 
       await sendEmail({
         email: user.email,
-        subject: 'Welcome to FYP Management System! ??',
+        subject: 'Welcome to FYP Management System!',
         message: `Hi ${user.name},\n\nWelcome to the FYP Management System! Your account has been successfully created as a ${user.role}.\n\nBest regards,\nFYP Team`,
         html: emailHtml
       });
@@ -410,7 +410,7 @@ exports.forgotPassword = async (req, res) => {
 
       await sendEmail({
         email: user.email,
-        subject: '?? Reset Your FYP Management Password',
+        subject: 'Reset Your FYP Management Password',
         message,
         html: resetHtml
       });
@@ -425,6 +425,7 @@ exports.forgotPassword = async (req, res) => {
       return res.status(500).json({ success: false, message: 'Email could not be sent' });
     }
   } catch (error) {
+    logger.error('Reset password flow error', { message: error.message, stack: error.stack });
     res.status(400).json({ success: false, message: 'An error occurred. Please try again.' });
   }
 };
@@ -434,44 +435,65 @@ exports.forgotPassword = async (req, res) => {
 // @access  Public
 exports.resetPassword = async (req, res) => {
   try {
+    logger.info('Reset password requested', { tokenParam: req.params.token, ip: req.ip, path: req.originalUrl });
     // Get hashed token
     const resetPasswordToken = crypto
       .createHash('sha256')
       .update(req.params.token)
       .digest('hex');
 
-    const user = await User.findOne({
+    // Use raw collection lookup to avoid Mongoose casting/validation issues
+    const raw = await User.collection.findOne({
       resetPasswordToken,
-      resetPasswordExpire: { $gt: Date.now() }
+      resetPasswordExpire: { $gt: new Date() }
     });
 
-    if (!user) {
-      return res.status(400).json({ success: false, message: 'Invalid token' });
+    if (!raw) {
+      logger.warn('Invalid or expired reset token (raw lookup)', { token: req.params.token });
+      return res.status(400).json({ success: false, message: 'Invalid or expired reset token' });
     }
 
     const { password } = req.body;
 
     // Strong password validation
     if (!password || password.length < 8 || !/\d/.test(password) || !/[a-zA-Z]/.test(password)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Password must be at least 8 characters long and contain both letters and numbers'
-      });
+      logger.warn('Reset password validation failed (raw lookup)', { userId: raw._id, ip: req.ip });
+      return res.status(400).json({ success: false, message: 'Password must be at least 8 characters long and contain both letters and numbers' });
     }
 
-    // Set new password
-    user.password = password;
-    user.resetPasswordToken = undefined;
-    user.resetPasswordExpire = undefined;
-    appendAuditEntry(user, {
-      userId: user._id,
-      action: 'password_reset',
-      changes: 'Password reset via token flow'
-    });
-    await user.save();
+    // Hash and update directly using collection to avoid model validation
+    const bcrypt = require('bcryptjs');
+    const salt = await bcrypt.genSalt(10);
+    const hashed = await bcrypt.hash(password, salt);
 
-    sendTokenResponse(user, 200, res);
+    await User.collection.updateOne({ _id: raw._id }, { $set: { password: hashed, resetPasswordToken: null, resetPasswordExpire: null } });
+
+    // Record audit entry via model if possible (best-effort)
+    try {
+      await appendAuditEntry({ _id: raw._id }, {
+        userId: raw._id,
+        action: 'password_reset',
+        changes: 'Password reset via token flow (raw update)'
+      });
+    } catch (e) {
+      logger.debug('appendAuditEntry failed for raw reset', { err: e.message, userId: raw._id });
+    }
+
+    logger.info('Password reset via raw update', { userId: raw._id });
+
+    // Build a minimal user object and send token cookie so client remains authenticated
+    const userForResponse = {
+      _id: raw._id,
+      name: raw.name || '',
+      email: raw.email || '',
+      role: raw.role || 'student',
+      department: raw.department || ''
+    };
+
+    sendTokenResponse(userForResponse, 200, res);
+    return;
   } catch (error) {
+    logger.error('Reset password handler error', { message: error.message, stack: error.stack, tokenParam: req.params.token, ip: req.ip });
     res.status(400).json({ success: false, message: 'An error occurred. Please try again.' });
   }
 };

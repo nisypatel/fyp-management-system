@@ -6,6 +6,7 @@ import { toast } from 'react-toastify';
 import { notificationService } from '../services/notificationService';
 import usePageTitle from '../hooks/usePageTitle';
 import Navbar from '../components/Navbar';
+import { formatDateTime } from '../utils/dateFormat';
 import '../styles/notifications.css';
 
 const Notifications = () => {
@@ -189,7 +190,7 @@ const Notifications = () => {
                             </div>
                             <p className="notification-card-message">{notif.message}</p>
                             <small className="notification-card-time">
-                              {new Date(notif.createdAt).toLocaleString()}
+                              {formatDateTime(notif.createdAt)}
                             </small>
                           </div>
                           {!notif.isRead && <div className="unread-dot"></div>}

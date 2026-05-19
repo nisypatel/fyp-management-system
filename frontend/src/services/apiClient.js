@@ -1,8 +1,12 @@
 // Purpose: Single Axios client configuration used by all service modules.
 import axios from 'axios';
 
+const rawApiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+const normalizedApiUrl = rawApiUrl.replace(/\/$/, '');
+const baseURL = normalizedApiUrl.endsWith('/api') ? normalizedApiUrl : `${normalizedApiUrl}/api`;
+
 const apiClient = axios.create({
-  baseURL: process.env.REACT_APP_API_URL || 'http://localhost:5000/api',
+  baseURL,
   headers: {
     'Content-Type': 'application/json'
   },
